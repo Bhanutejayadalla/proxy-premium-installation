@@ -208,15 +208,15 @@ class AppState extends ChangeNotifier {
     await firebase.recordReelView(reelId);
   }
 
-  Future<void> toggleLike(String postId) async {
+  Future<void> toggleLike(String postId, {String collection = 'posts'}) async {
     if (currentUser == null) return;
-    await firebase.toggleLike(postId, currentUser!.uid, currentUser!.username);
+    await firebase.toggleLike(postId, currentUser!.uid, currentUser!.username, collection: collection);
   }
 
-  Future<void> addComment(String postId, String text) async {
+  Future<void> addComment(String postId, String text, {String collection = 'posts'}) async {
     if (currentUser == null) return;
     await firebase.addComment(
-        postId, currentUser!.uid, currentUser!.username, text);
+        postId, currentUser!.uid, currentUser!.username, text, collection: collection);
   }
 
   // ─────────────────────────────────────────────

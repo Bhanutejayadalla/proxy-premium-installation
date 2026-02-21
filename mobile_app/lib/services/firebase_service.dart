@@ -120,8 +120,8 @@ class FirebaseService {
     }
   }
 
-  Future<void> toggleLike(String postId, String uid, String username) async {
-    final ref = _db.collection('posts').doc(postId);
+  Future<void> toggleLike(String postId, String uid, String username, {String collection = 'posts'}) async {
+    final ref = _db.collection(collection).doc(postId);
     final doc = await ref.get();
     if (!doc.exists) return;
 
@@ -141,7 +141,7 @@ class FirebaseService {
           fromUid: uid,
           fromUsername: username,
           type: 'like',
-          text: 'liked your post',
+          text: collection == 'reels' ? 'liked your reel' : 'liked your post',
           postId: postId,
         );
       }
@@ -149,8 +149,8 @@ class FirebaseService {
   }
 
   Future<void> addComment(
-      String postId, String uid, String username, String text) async {
-    final ref = _db.collection('posts').doc(postId);
+      String postId, String uid, String username, String text, {String collection = 'posts'}) async {
+    final ref = _db.collection(collection).doc(postId);
     await ref.update({
       'comments': FieldValue.arrayUnion([
         {
