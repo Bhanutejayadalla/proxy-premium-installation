@@ -40,12 +40,13 @@
 1. [Quick Start](#-quick-start)
 2. [How to Connect Your Phone](#-how-to-connect-your-phone)
 3. [Setup Instructions](#-setup-instructions)
-4. [Offline Features](#-offline-features)
-5. [Architecture](#-architecture)
-6. [Technology Stack](#-technology-stack)
-7. [Project Structure](#-project-structure)
-8. [Contributing](#-contributing)
-9. [License](#-license)
+4. [How to Send & Accept Connections](#-how-to-send--accept-connections)
+5. [Offline Features](#-offline-features)
+6. [Architecture](#-architecture)
+7. [Technology Stack](#-technology-stack)
+8. [Project Structure](#-project-structure)
+9. [Contributing](#-contributing)
+10. [License](#-license)
 
 ---
 
@@ -223,6 +224,82 @@ Follow the comprehensive guide in **[installsteps.md](installsteps.md)** which c
 - Managing branches and pull requests
 
 **Estimated Setup Time**: 20-30 minutes (first-time)
+
+---
+
+## 🤝 How to Send & Accept Connections
+
+Connections are a **Formal (Pro) mode** feature — professional networking between users you discover nearby.
+
+---
+
+### Step 1 — Switch to Pro Mode
+
+Tap the **PRO / SOCIAL** chip in the top header of the app to switch to **PRO** mode.  
+Connections are mode-specific: Pro connections = professional network, Social connections = casual network.
+
+---
+
+### Step 2 — Discover a Nearby User
+
+1. Go to the **Nearby** tab (radar icon in the bottom nav)
+2. Tap **Scan** to start BLE or GPS discovery
+3. Nearby users appear as cards on screen
+
+---
+
+### Step 3 — Send a Connection Request
+
+1. On a nearby user's card, tap **Connect**
+2. A confirmation snackbar appears: *"Connection request sent!"*
+3. The request is stored in Firestore with status `pending`
+
+> You can also send a request from a user's **profile page** — tap their avatar in the Nearby list to open their profile, then tap **Connect**.
+
+---
+
+### Step 4 — Accepting a Connection Request (Recipient)
+
+When someone sends you a request, you have **two ways** to accept it:
+
+#### Option A — via Notifications (Bell Icon)
+1. Tap the 🔔 **bell icon** in the top-right header
+2. You'll see a notification: **"[Username] sent you a connection request"**
+3. Tapping the notification takes you to the **Connection Requests** screen
+
+#### Option B — via Settings
+1. Go to the **Profile** tab (last tab in the bottom nav)
+2. Tap the **⚙ Settings** gear icon (top-right of profile screen)
+3. Scroll down to **"Connection Requests"**
+4. Tap it to open the full requests list
+
+#### On the Connection Requests screen:
+| What you see | What to do |
+|---|---|
+| Requester's name, avatar, and headline | Review who is requesting |
+| Mode label (Pro / Social) | Know which mode the request is for |
+| Optional message from requester | Read their note (if they added one) |
+| **Accept** button | Tap to accept — you're now connected |
+| **Decline** button | Tap to decline — request is removed |
+
+After accepting, a *"Connection accepted"* confirmation appears at the bottom of the screen.
+
+---
+
+### Step 5 — Viewing Your Connections
+
+Your accepted connections are visible in **Settings → Connection Requests** (shows pending only) and will be used for feed filtering and profile visibility in future updates.
+
+---
+
+### Connection Privacy
+
+You can control who sees your profile in **Settings → Privacy**:
+
+| Setting | Effect |
+|---|---|
+| **Public** | Anyone can view your profile |
+| **Connections Only** | Only accepted connections see your full profile |
 
 ---
 
