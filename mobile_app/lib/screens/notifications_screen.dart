@@ -3,51 +3,97 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 
-class NotificationsScreen extends StatefulWidget {
+class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
 
   @override
-  State<NotificationsScreen> createState() => _NotificationsScreenState();
-}
-
-class _NotificationsScreenState extends State<NotificationsScreen> {
-  List<NotificationItem> _list = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  void _load() async {
-    final items = await Provider.of<AppState>(context, listen: false).fetchNotifications();
-    if(mounted) setState(() => _list = items);
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final state = Provider.of<AppState>(context);
+
     return Scaffold(
       appBar: AppBar(title: const Text("Notifications")),
-      body: _list.isEmpty 
-        ? const Center(child: Text("No notifications yet"))
-        : ListView.builder(
-            itemCount: _list.length,
+      body: StreamBuilder<List<NotificationItem>>(
+        stream: state.notificationsStream,
+        builder: (ctx, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final list = snap.data ?? [];
+          if (list.isEmpty) {
+            return const Center(
+                child: Text("No notifications yet",
+                    style: TextStyle(color: Colors.grey)));
+          }
+          return ListView.builder(
+            itemCount: list.length,
             itemBuilder: (ctx, i) {
-              final item = _list[i];
+              final item = list[i];
+              IconData icon;
+              Color iconColor;
+              switch (item.type) {
+                case 'like':
+                  icon = Icons.favorite;
+                  iconColor = Colors.red;
+                  break;
+                case 'comment':
+                  icon = Icons.comment;
+                  iconColor = Colors.blue;
+                  break;
+                case 'connection_request':
+                  icon = Icons.person_add;
+                  iconColor = Colors.green;
+                  break;
+                case 'message':
+                  icon = Icons.message;
+                  iconColor = Colors.orange;
+                  break;
+                default:
+                  icon = Icons.notifications;
+                  iconColor = Colors.grey;
+              }
               return ListTile(
-                leading: CircleAvatar(child: Icon(item.type == 'like' ? Icons.favorite : Icons.comment, color: Colors.white), backgroundColor: item.type == 'like' ? Colors.red : Colors.blue),
+                leading: CircleAvatar(
+                    backgroundColor: iconColor,
+                    child: Icon(icon, color: Colors.white)),
                 title: RichText(
                   text: TextSpan(
                     style: const TextStyle(color: Colors.black),
                     children: [
-                      TextSpan(text: item.fromUser, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      TextSpan(text: " ${item.text}")
-                    ]
+                      TextSpan(
+                          text: item.fromUser,
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      TextSpan(text: " ${item.text}"),
+                    ],
                   ),
                 ),
+                trailing: item.type == 'connection_request'
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.check, color: Colors.green),
+                            onPressed: () {
+                              // Accept not available without connection id from stream
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.red),
+                            onPressed: () {},
+                          ),
+                        ],
+                      )
+                    : null,
+                tileColor: item.read ? null : Colors.blue.withOpacity(0.05),
+                onTap: () {
+                  if (item.id.isNotEmpty && !item.read) {
+                    state.firebase.markNotificationRead(item.id);
+                  }
+                },
               );
             },
-          ),
+          );
+        },
+      ),
     );
   }
 }

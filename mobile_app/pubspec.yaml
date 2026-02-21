@@ -6,21 +6,50 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   # State
   provider: ^6.0.0
-  # Network
-  http: ^1.1.0
-  web_socket_channel: ^2.4.0
+
+  # Firebase
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.0
+  cloud_firestore: ^5.4.0
+  firebase_messaging: ^15.1.0
+
+  # File Upload (Cloudinary - free alternative to Firebase Storage)
+  http: ^1.2.0
+  path: ^1.8.0
+
+  # Local Storage
+  shared_preferences: ^2.2.0
+
   # UI
   google_fonts: ^6.1.0
   lucide_icons: ^0.257.0
   flutter_animate: ^4.2.0
   cached_network_image: ^3.3.0
   intl: ^0.18.0
-  # Hardware
+
+  # Hardware / Media
   image_picker: ^1.0.4
   permission_handler: ^11.0.0
   flutter_blue_plus: ^1.15.0
+  geolocator: ^11.0.0
+  google_maps_flutter: ^2.5.0
+
+  # Video (Phase 4)
+  video_player: ^2.8.0
+  video_compress: ^3.1.0
+  camera: ^0.10.0
+  path_provider: ^2.1.0
+
+  # Notifications
+  flutter_local_notifications: ^17.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true

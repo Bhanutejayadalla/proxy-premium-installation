@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../api_service.dart';
 
 class StoryCircle extends StatelessWidget {
   final dynamic story;
@@ -8,6 +6,8 @@ class StoryCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final url = story['media_url'] ?? '';
+    final username = story['username'] ?? '';
     return Container(
       margin: const EdgeInsets.only(right: 12),
       child: Column(children: [
@@ -19,12 +19,15 @@ class StoryCircle extends StatelessWidget {
           ),
           child: CircleAvatar(
             radius: 30,
-            backgroundImage: NetworkImage("${ApiService.baseUrl}${story['media_url']}"),
+            backgroundImage: url.isNotEmpty ? NetworkImage(url) : null,
             backgroundColor: Colors.grey[200],
+            child: url.isEmpty
+                ? Text(username.isNotEmpty ? username[0] : '?')
+                : null,
           ),
         ),
         const SizedBox(height: 4),
-        Text(story['username'], style: const TextStyle(fontSize: 10))
+        Text(username, style: const TextStyle(fontSize: 10))
       ]),
     );
   }

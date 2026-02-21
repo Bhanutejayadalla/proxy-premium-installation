@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ── Users ─────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // ── Posts ─────────────────────────────────────────────────
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Stories ───────────────────────────────────────────────
+    match /stories/{storyId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Reels ─────────────────────────────────────────────────
+    match /reels/{reelId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // view counts, likes
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Chats & Messages ──────────────────────────────────────
+    match /chats/{chatId} {
+      allow read: if isSignedIn();
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+      }
+    }
+
+    // ── Notifications ─────────────────────────────────────────
+    match /notifications/{notifId} {
+      allow read: if isSignedIn()
+                  && resource.data.to_uid == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn()
+                    && resource.data.to_uid == request.auth.uid;
+    }
+
+    // ── Jobs ──────────────────────────────────────────────────
+    match /jobs/{jobId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update, delete: if isSignedIn()
+                            && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Connections ───────────────────────────────────────────
+    match /connections/{connId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.from == request.auth.uid;
+      allow update: if isSignedIn()
+                    && (resource.data.from == request.auth.uid
+                        || resource.data.to == request.auth.uid);
+      allow delete: if isSignedIn()
+                    && (resource.data.from == request.auth.uid
+                        || resource.data.to == request.auth.uid);
+    }
+  }
+}

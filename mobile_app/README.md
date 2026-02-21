@@ -1,16 +1,337 @@
-# dual_mode_app
+# Proxi 2.0 — Dual-Mode Social Connectivity Platform (Firebase Edition)
 
-A new Flutter project.
+**Proxi** is an innovative social networking application that enables users to maintain two distinct online personas with a simple toggle. Switch seamlessly between:
 
-## Getting Started
+- 🔵 **Formal / PRO Mode** — Professional networking (LinkedIn-style interface with blue theme)
+- 🎨 **Casual / SOCIAL Mode** — Personal social sharing (Instagram-style interface with pink/gradient theme)
 
-This project is a starting point for a Flutter application.
+The app uses **Bluetooth Low Energy (BLE)** and **GPS** for proximity-based user discovery, allowing you to find and connect with people physically near you.
 
-A few resources to get you started if this is your first Flutter project:
+---
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## ✨ Key Features
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **Dual Persona System** — Instantly switch between formal and casual modes without logging out
+- **Mode-Specific Content** — Separate feeds, avatars, and UI themes for each mode
+- **Proximity Discovery** — BLE radar + GPS distance scanning with animated UI
+- **Real-time Chat** — Firestore-powered messaging with media sharing
+- **Stories & Posts** — Create ephemeral stories (24h auto-expiry) or permanent posts with media
+- **Video Reels** — Record and browse short-form vertical video content (casual mode)
+- **Professional Profiles** — Full name, headline, skills, experience, education (formal mode)
+- **Job Board** — Post and apply for jobs in formal mode
+- **Connection Requests** — Send, accept, or decline connections with privacy controls
+- **Push Notifications** — FCM-powered notifications for likes, comments, messages, and connections
+- **Privacy Controls** — Tiered profile visibility (public / connections-only / private)
+- **Onboarding** — 4-page walkthrough introducing app features
+
+---
+
+## 🏗️ Tech Stack
+
+### **Backend — Firebase (Serverless)**
+
+No self-hosted backend required. All operations use Firebase SDKs directly from the Flutter app.
+
+| Service | Purpose |
+|---------|---------|
+| **Firebase Auth** | Email/password authentication with JWT |
+| **Cloud Firestore** | Real-time NoSQL database |
+| **Firebase Storage** | CDN-backed media file storage |
+| **Firebase Cloud Messaging** | Push notifications |
+
+**Firestore Collections:**
+- `users` — User profiles with dual avatars, professional fields, location
+- `posts` — Mode-specific user posts
+- `stories` — Ephemeral story content (24h expiry)
+- `reels` — Short-form video content
+- `chats/{chatId}/messages` — Real-time chat messages (subcollection)
+- `notifications` — Social interaction alerts
+- `jobs` — Job postings (formal mode)
+- `connections` — Connection requests and statuses
+
+### **Frontend (Flutter)**
+
+**Core:**
+- **Flutter 3.0+** — Cross-platform mobile framework
+- **Dart SDK** >=3.0.0 <4.0.0
+
+**State Management:**
+- `provider: ^6.0.0` — Centralized app state with `ChangeNotifier`
+
+**Firebase:**
+- `firebase_core`, `firebase_auth`, `cloud_firestore`, `firebase_storage`, `firebase_messaging`
+
+**UI/UX:**
+- `google_fonts: ^6.1.0` — Custom typography
+- `lucide_icons: ^0.257.0` — Modern icon library
+- `flutter_animate: ^4.2.0` — Smooth animations (radar pulse effects)
+- `cached_network_image: ^3.3.0` — Optimized image loading
+- `intl: ^0.18.0` — Date/time formatting
+
+**Hardware & Media:**
+- `flutter_blue_plus: ^1.15.0` — Bluetooth Low Energy scanning
+- `geolocator: ^11.0.0` — GPS location services
+- `google_maps_flutter: ^2.5.0` — Optional map view
+- `image_picker: ^1.0.4` — Camera and gallery access
+- `video_player: ^2.8.0` — Video playback for reels
+- `video_compress: ^3.1.0` — Client-side video compression
+- `camera: ^0.10.0` — Camera access for recording
+- `permission_handler: ^11.0.0` — Runtime permission management
+
+**Notifications:**
+- `flutter_local_notifications: ^16.0.0` — Foreground notification display
+
+---
+
+## 📋 Prerequisites
+
+Before running this project, ensure you have:
+
+1. **Flutter SDK** — Version 3.0 or higher ([Install Flutter](https://docs.flutter.dev/get-started/install))
+2. **Firebase Project** — Created at [Firebase Console](https://console.firebase.google.com/)
+3. **FlutterFire CLI** — `dart pub global activate flutterfire_cli` ([FlutterFire docs](https://firebase.flutter.dev/docs/cli/))
+4. **Android Studio** (for Android) or **Xcode** (for iOS)
+5. **Physical Device** (recommended) — BLE features require a real device
+
+---
+
+## 🚀 Setup Instructions
+
+### **Step 1: Create Firebase Project**
+
+1. Go to [Firebase Console](https://console.firebase.google.com/) → Add Project
+2. Enable these services in the console:
+   - **Authentication** → Sign-in method → Email/Password → Enable
+   - **Cloud Firestore** → Create database → Start in production mode
+   - **Storage** → Get started → Start in production mode
+   - **Cloud Messaging** → Enabled by default
+
+### **Step 2: Configure Firebase in Flutter**
+
+```bash
+cd mobile_app
+
+# Install FlutterFire CLI
+dart pub global activate flutterfire_cli
+
+# Configure Firebase (generates google-services.json / GoogleService-Info.plist)
+flutterfire configure --project=YOUR_PROJECT_ID
+```
+
+This generates:
+- `android/app/google-services.json`
+- `ios/Runner/GoogleService-Info.plist`
+- `lib/firebase_options.dart`
+
+### **Step 3: Deploy Security Rules**
+
+```bash
+# From project root (where firestore.rules is located)
+firebase deploy --only firestore:rules
+firebase deploy --only storage
+firebase deploy --only firestore:indexes
+```
+
+Or copy the rules from `firestore.rules` and `storage.rules` into Firebase Console manually.
+
+### **Step 4: Install Dependencies & Run**
+
+```bash
+cd mobile_app
+flutter pub get
+flutter run
+```
+
+### **Step 5: Grant Permissions**
+
+When you first launch the app, grant the following permissions:
+- **Bluetooth** — For proximity discovery
+- **Location** — For GPS nearby scanning + required by Android for BLE
+- **Camera** — For taking photos/videos
+- **Storage** — For selecting media from gallery
+- **Notifications** — For push notifications
+
+---
+
+## 📁 Project Structure
+
+```
+Proxi_Social_Connectivity/
+├── firestore.rules                     # Firestore security rules
+├── storage.rules                       # Firebase Storage security rules
+├── firestore.indexes.json              # Composite index definitions
+├── plan.md                             # Full 8-phase evolution blueprint
+│
+└── mobile_app/                         # Flutter Mobile App
+    ├── pubspec.yaml                    # Flutter dependencies
+    ├── lib/
+    │   ├── main.dart                   # App entry (Firebase init, Provider setup)
+    │   ├── app_state.dart              # Global state (auth, feed, reels, jobs, chat)
+    │   ├── ble_service.dart            # Bluetooth Low Energy scanning
+    │   ├── constants.dart              # Color themes & shared constants
+    │   ├── models.dart                 # Data models (AppUser, Post, Job, Connection)
+    │   │
+    │   ├── services/                   # Firebase & device services
+    │   │   ├── auth_service.dart       # Firebase Auth wrapper
+    │   │   ├── firebase_service.dart   # Firestore CRUD (40+ operations)
+    │   │   ├── location_service.dart   # GPS permissions & location updates
+    │   │   └── notification_service.dart # FCM + local notifications
+    │   │
+    │   ├── screens/                    # UI screens (23 files)
+    │   │   ├── auth_screen.dart        # Login / Register
+    │   │   ├── onboarding_screen.dart  # 4-page first-launch walkthrough
+    │   │   ├── home_shell.dart         # Tab navigation (6 tabs per mode)
+    │   │   ├── feed_screen.dart        # Stories + posts feed
+    │   │   ├── nearby_screen.dart      # BLE/GPS discovery with radar UI
+    │   │   ├── nearby_map_screen.dart  # Visual radar-style map
+    │   │   ├── create_post_screen.dart # Post/story creator
+    │   │   ├── reels_screen.dart       # Vertical video swipe feed
+    │   │   ├── record_reel_screen.dart # Record/upload short video
+    │   │   ├── jobs_screen.dart        # Job board (formal mode)
+    │   │   ├── create_job_screen.dart  # Post new job
+    │   │   ├── chat_list_screen.dart   # Conversations list
+    │   │   ├── chat_detail_screen.dart # Real-time messages
+    │   │   ├── profile_screen.dart     # User profile + posts grid
+    │   │   ├── edit_profile_screen.dart # Edit profile fields & avatars
+    │   │   ├── user_detail_screen.dart # View another user's profile
+    │   │   ├── experience_screen.dart  # Work experience editor
+    │   │   ├── education_screen.dart   # Education editor
+    │   │   ├── connections_screen.dart # Accepted connections list
+    │   │   ├── connection_requests_screen.dart # Pending requests
+    │   │   ├── notifications_screen.dart # Notification feed
+    │   │   ├── settings_screen.dart    # App settings & privacy
+    │   │   └── story_view_screen.dart  # Full-screen story viewer
+    │   │
+    │   └── widgets/                    # Reusable components (13 files)
+    │       ├── mode_switch.dart        # Formal/Casual toggle animation
+    │       ├── post_card.dart          # Post display card
+    │       ├── story_circle.dart       # Story avatar bubble
+    │       ├── reel_card.dart          # Full-screen reel overlay
+    │       ├── video_player_widget.dart # Video playback controller
+    │       ├── job_card.dart           # Job listing card
+    │       ├── skill_chip.dart         # Skill tag chip
+    │       ├── experience_card.dart    # Work history entry
+    │       ├── connection_button.dart  # Smart connect/pending/accepted button
+    │       ├── discovery_mode_toggle.dart # BLE/GPS selector
+    │       ├── privacy_settings_sheet.dart # Visibility bottom sheet
+    │       ├── empty_state.dart        # Empty screen placeholder
+    │       └── loading_overlay.dart    # Full-screen loading indicator
+    │
+    └── test/
+        └── widget_test.dart            # Basic smoke tests
+```
+
+---
+
+## 🔧 Architecture
+
+### **Dual Mode System**
+
+Users have two separate avatars, themes, and content feeds:
+- **Formal (PRO)** — Blue theme, 6 tabs: Home | Nearby | Post | Jobs | Chat | Profile
+- **Casual (SOCIAL)** — Pink/gradient theme, 6 tabs: Home | Nearby | Post | Reels | Chat | Profile
+
+When mode is toggled via the FAB in `home_shell.dart`:
+1. UI theme switches (blue ↔ pink/gradient)
+2. Feed, stories, and reels filter by `mode` field
+3. Displayed avatar changes (formal ↔ casual)
+4. New content is tagged with current mode
+5. Tab bar switches jobs ↔ reels
+
+### **Proximity Discovery**
+
+Two discovery modes available:
+- **BLE (Bluetooth)** — `ble_service.dart` scans for nearby devices, matches via `ble_uuid`
+- **GPS** — `location_service.dart` updates location to Firestore, `firebase_service.dart` queries nearby users with haversine distance calculation
+
+### **Real-time Data**
+
+All data flows via Firestore `snapshots()` streams:
+- Feed posts, stories, and reels update in real-time
+- Chat messages appear instantly for both participants
+- Notifications stream to the notification badge
+- Connections and job postings reflect changes live
+
+### **Security**
+
+- **Authentication** — Firebase Auth handles email/password with automatic JWT
+- **Database** — Firestore Security Rules restrict read/write by auth state and ownership
+- **Storage** — Storage Rules enforce file type and size limits (10 MB images, 100 MB video, 5 MB PDFs)
+- **No backend server required** — All security is declarative via rules files
+
+---
+
+## ⚠️ Important Notes
+
+### **Firebase Setup Required**
+
+Before the app will compile and run, you **must** set up a Firebase project and run `flutterfire configure`. Without this, `Firebase.initializeApp()` will fail at launch.
+
+### **Platform Considerations**
+
+**Android:**
+- Permissions configured in `android/app/src/main/AndroidManifest.xml`
+- `usesCleartextTraffic="true"` may be needed for local development
+- Location permission required for both BLE scanning and GPS discovery
+
+**iOS:**
+- Requires `Info.plist` entries for Camera, Bluetooth, Location, and Notification usage descriptions
+- FCM requires an APNs certificate or key configured in Firebase Console
+
+### **Free Tier Limits**
+
+Firebase Spark plan (free) is generous for development and small apps:
+- **Firestore:** 50K reads/day, 20K writes/day, 1 GB storage
+- **Storage:** 5 GB files, 1 GB downloads/day
+- **Auth:** Unlimited users
+- **FCM:** Unlimited push notifications
+
+---
+
+## 🐛 Troubleshooting
+
+| Issue | Solution |
+|-------|---------|
+| `Firebase.initializeApp()` fails | Run `flutterfire configure` to generate config files |
+| BLE not working | Use a physical device, grant Bluetooth + Location permissions |
+| GPS shows no users | Ensure location permission granted; other users must have location enabled |
+| Images not loading | Verify Firebase Storage rules allow authenticated reads |
+| Push notifications not received | Check FCM token is stored in user document; verify `notification_service.dart` init |
+| Videos won't play | Ensure `video_player` dependency is installed; check Storage URLs |
+
+---
+
+## 🎯 Usage Guide
+
+### **First Time**
+
+1. **Register** — Enter email, username, and password on the auth screen
+2. **Grant Permissions** — Allow Bluetooth, Location, Camera, Storage, Notifications
+3. **Onboarding** — Swipe through the 4-page walkthrough
+4. **Toggle Mode** — Tap the FAB (briefcase ↔ party) to switch Formal/Casual
+5. **Create Content** — Tap + tab to create a post or story
+6. **Discover** — Go to Nearby tab to scan for users via BLE or GPS
+7. **Connect** — Send connection requests from user profiles
+8. **Chat** — Start conversations with connected users
+
+### **Formal Mode Features**
+- Professional profile (headline, skills, experience, education)
+- Job board — browse and post jobs
+- "Open to Work" and "Hiring" badges
+- Blue-themed UI
+
+### **Casual Mode Features**
+- Fun/personal profile with casual avatar
+- Video Reels tab — swipe through short videos
+- Pink/gradient theme
+- Relaxed content vibe
+
+---
+
+## 📜 License
+
+This project is a prototype for educational/demonstration purposes.
+
+---
+
+**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: February 2026**

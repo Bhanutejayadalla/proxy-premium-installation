@@ -3,115 +3,173 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../app_state.dart';
 import '../models.dart';
-import '../api_service.dart';
+import 'edit_profile_screen.dart';
+import 'settings_screen.dart';
 
-class ProfileScreen extends StatefulWidget {
+class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
-  @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends State<ProfileScreen> {
-  List<Post> _myPosts = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchMyPosts();
-  }
-
-  void _fetchMyPosts() async {
-    final state = Provider.of<AppState>(context, listen: false);
-    if (state.currentUser != null) {
-      final posts = await state.api.getUserPosts(state.currentUser!.username);
-      if(mounted) setState(() => _myPosts = posts);
-    }
-  }
-
-  void _showEditBio() {
-    final ctrl = TextEditingController();
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("Update Bio"),
-      content: TextField(controller: ctrl, decoration: const InputDecoration(hintText: "Enter new bio")),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
-        ElevatedButton(onPressed: () async {
-          // Call API to update
-          Navigator.pop(ctx);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bio Updated!")));
-        }, child: const Text("Save"))
-      ],
-    ));
-  }
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<AppState>(context); // Listen to changes
+    final state = Provider.of<AppState>(context);
     final user = state.currentUser;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(user?.username ?? ""),
         actions: [
-          IconButton(icon: const Icon(Icons.settings), onPressed: (){
-             showModalBottomSheet(context: context, builder: (ctx) => Column(
-               mainAxisSize: MainAxisSize.min,
-               children: [
-                 ListTile(
-                   leading: const Icon(Icons.edit), 
-                   title: const Text("Edit Bio"),
-                   onTap: () { Navigator.pop(ctx); _showEditBio(); },
-                 ),
-                 ListTile(
-                   leading: const Icon(Icons.logout, color: Colors.red), 
-                   title: const Text("Log Out", style: TextStyle(color: Colors.red)),
-                   onTap: () { 
-                     // Navigate back to auth
-                     Navigator.of(context).popUntil((route) => route.isFirst);
-                   },
-                 ),
-               ],
-             ));
-          })
-        ],
-      ),
-      body: Column(
-        children: [
-          const SizedBox(height: 20),
-          // AVATAR
-          CircleAvatar(
-            radius: 50, 
-            // FIX: Use getAvatar
-            backgroundImage: NetworkImage(user?.getAvatar(state.isFormal) ?? ""),
-            onBackgroundImageError: (_,__) {},
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const EditProfileScreen())),
           ),
-          const SizedBox(height: 10),
-          Text(user?.username ?? "", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
-          Text(user?.bio ?? "No bio", style: const TextStyle(color: Colors.grey)),
-          
-          const SizedBox(height: 20),
-          const Divider(),
-          
-          // REAL POSTS GRID
-          Expanded(
-            child: _myPosts.isEmpty 
-            ? const Center(child: Text("No posts yet."))
-            : GridView.builder(
-              padding: const EdgeInsets.all(2),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 2, mainAxisSpacing: 2),
-              itemCount: _myPosts.length, 
-              itemBuilder: (ctx, i) {
-                final p = _myPosts[i];
-                if (p.mediaUrl == null) return Container(color: Colors.grey[300], child: const Icon(Icons.text_fields));
-                return CachedNetworkImage(
-                  imageUrl: "${ApiService.baseUrl}${p.mediaUrl}",
-                  fit: BoxFit.cover,
-                );
-              },
-            ),
-          )
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
         ],
       ),
+      body: user == null
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  // AVATAR
+                  CircleAvatar(
+                    radius: 50,
+                    backgroundImage: user.getAvatar(state.isFormal).isNotEmpty
+                        ? NetworkImage(user.getAvatar(state.isFormal))
+                        : null,
+                    child: user.getAvatar(state.isFormal).isEmpty
+                        ? Text(user.username.isNotEmpty
+                            ? user.username[0].toUpperCase()
+                            : '?',
+                            style: const TextStyle(fontSize: 36))
+                        : null,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(user.fullName.isNotEmpty ? user.fullName : user.username,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 22)),
+                  if (user.headline.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 4),
+                      child: Text(user.headline,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.grey)),
+                    ),
+                  Text(user.bio.isNotEmpty ? user.bio : "No bio",
+                      style: const TextStyle(color: Colors.grey)),
+
+                  const SizedBox(height: 12),
+
+                  // Followers / Following
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _statCol("Followers", user.followers.length),
+                      const SizedBox(width: 40),
+                      _statCol("Following", user.following.length),
+                    ],
+                  ),
+
+                  // Skills (formal mode)
+                  if (state.isFormal && user.skills.isNotEmpty) ...[
+                    const Divider(height: 30),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: user.skills
+                              .map((s) => Chip(label: Text(s)))
+                              .toList(),
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  // Open to work / Hiring badge
+                  if (state.isFormal && (user.openToWork || user.hiring)) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: user.openToWork
+                            ? Colors.green.shade50
+                            : Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        user.openToWork ? "Open to Work" : "Hiring",
+                        style: TextStyle(
+                          color: user.openToWork
+                              ? Colors.green.shade700
+                              : Colors.blue.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  const Divider(height: 30),
+
+                  // Posts grid
+                  StreamBuilder<List<Post>>(
+                    stream: state.firebase.getUserPostsStream(user.uid),
+                    builder: (ctx, snap) {
+                      final posts = snap.data ?? [];
+                      if (posts.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.all(40),
+                          child: Text("No posts yet.",
+                              style: TextStyle(color: Colors.grey)),
+                        );
+                      }
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(2),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 2,
+                                mainAxisSpacing: 2),
+                        itemCount: posts.length,
+                        itemBuilder: (ctx, i) {
+                          final p = posts[i];
+                          if (p.mediaUrl == null) {
+                            return Container(
+                                color: Colors.grey[300],
+                                child: const Icon(Icons.text_fields));
+                          }
+                          return CachedNetworkImage(
+                            imageUrl: p.mediaUrl!,
+                            fit: BoxFit.cover,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _statCol(String label, int count) {
+    return Column(
+      children: [
+        Text("$count",
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
     );
   }
 }
