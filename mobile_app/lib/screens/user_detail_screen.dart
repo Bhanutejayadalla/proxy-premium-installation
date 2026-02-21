@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../services/firebase_service.dart';
 import 'chat_detail_screen.dart';
+import 'connection_requests_screen.dart';
 
 class UserDetailScreen extends StatelessWidget {
   final AppUser user;
@@ -12,8 +13,9 @@ class UserDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<AppState>(context, listen: false);
+    final state = Provider.of<AppState>(context);
     final isFormal = state.isFormal;
+    final connStatus = state.connectionStatusWith(user.uid);
 
     return Scaffold(
       appBar: AppBar(title: Text(user.username)),
@@ -136,15 +138,48 @@ class UserDetailScreen extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(LucideIcons.userPlus),
-                    label: const Text("Connect"),
-                    onPressed: () {
-                      state.sendConnectionRequest(user.uid);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Connection request sent")));
-                    },
-                  ),
+                  child: connStatus == 'accepted'
+                      ? OutlinedButton.icon(
+                          icon: const Icon(LucideIcons.userCheck,
+                              color: Colors.green),
+                          label: const Text("Connected",
+                              style: TextStyle(color: Colors.green)),
+                          onPressed: null,
+                        )
+                      : connStatus == 'pending_sent'
+                          ? OutlinedButton.icon(
+                              icon: const Icon(LucideIcons.clock,
+                                  color: Colors.orange),
+                              label: const Text("Pending",
+                                  style: TextStyle(color: Colors.orange)),
+                              onPressed: null,
+                            )
+                          : connStatus == 'pending_received'
+                              ? ElevatedButton.icon(
+                                  icon: const Icon(LucideIcons.userCheck),
+                                  label: const Text("Accept"),
+                                  style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green),
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const ConnectionRequestsScreen()),
+                                    );
+                                  },
+                                )
+                              : OutlinedButton.icon(
+                                  icon: const Icon(LucideIcons.userPlus),
+                                  label: const Text("Connect"),
+                                  onPressed: () {
+                                    state.sendConnectionRequest(user.uid);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                "Connection request sent")));
+                                  },
+                                ),
                 ),
               ],
             ),

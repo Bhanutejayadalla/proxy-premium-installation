@@ -91,6 +91,7 @@ class FirebaseService {
     String? mediaUrl,
     String? thumbnailUrl,
     double duration = 0,
+    String visibility = 'public',
   }) async {
     final data = <String, dynamic>{
       'author_id': authorId,
@@ -102,6 +103,7 @@ class FirebaseService {
       'media_url': mediaUrl,
       'thumbnail_url': thumbnailUrl,
       'duration': duration,
+      'visibility': visibility,
       'likes': <String>[],
       'comments': <Map<String, dynamic>>[],
       'views': 0,
@@ -450,19 +452,30 @@ class FirebaseService {
     required String mode,
     String message = '',
   }) async {
+    // Check existing: from → to
     final existing = await _db
         .collection('connections')
         .where('from', isEqualTo: fromUid)
         .where('to', isEqualTo: toUid)
         .get();
-    if (existing.docs.isNotEmpty) return;
+    for (final doc in existing.docs) {
+      final status = doc.data()['status'] ?? '';
+      if (status == 'pending' || status == 'accepted') return; // Already active
+      // Declined/blocked — remove so we can re-send
+      await doc.reference.delete();
+    }
 
+    // Check reverse: to → from
     final reverse = await _db
         .collection('connections')
         .where('from', isEqualTo: toUid)
         .where('to', isEqualTo: fromUid)
         .get();
-    if (reverse.docs.isNotEmpty) return;
+    for (final doc in reverse.docs) {
+      final status = doc.data()['status'] ?? '';
+      if (status == 'pending' || status == 'accepted') return;
+      await doc.reference.delete();
+    }
 
     await _db.collection('connections').add({
       'from': fromUid,
@@ -509,6 +522,16 @@ class FirebaseService {
                 d.data()['from'] == uid || d.data()['to'] == uid)
             .map((d) => {'id': d.id, ...d.data()})
             .toList());
+  }
+
+  Stream<List<Map<String, dynamic>>> getSentRequestsStream(String uid) {
+    return _db
+        .collection('connections')
+        .where('from', isEqualTo: uid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
   }
 
   Stream<List<Map<String, dynamic>>> getPendingRequestsStream(String uid) {

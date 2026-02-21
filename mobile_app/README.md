@@ -19,9 +19,10 @@ The app uses **Bluetooth Low Energy (BLE)** and **GPS** for proximity-based user
 - **Video Reels** — Record and browse short-form vertical video content (casual mode)
 - **Professional Profiles** — Full name, headline, skills, experience, education (formal mode)
 - **Job Board** — Post and apply for jobs in formal mode
-- **Connection Requests** — Send, accept, or decline connections with privacy controls
+- **Connection Requests** — Send, accept, or decline connections with smart status indicators (Connected / Pending / Accept); automatically allows re-sending after a declined request
 - **Push Notifications** — FCM-powered notifications for likes, comments, messages, and connections
-- **Privacy Controls** — Tiered profile visibility (public / connections-only / private)
+- **Content Visibility** — Posts, stories, and reels respect the author's privacy setting (public / connections-only / private) and are filtered in real-time
+- **Connection Status Awareness** — Nearby users and profile pages display live connection state so you never send duplicate requests
 - **Onboarding** — 4-page walkthrough introducing app features
 
 ---
@@ -240,16 +241,50 @@ When mode is toggled via the FAB in `home_shell.dart`:
 
 ### **Proximity Discovery**
 
-Two discovery modes available:
-- **BLE (Bluetooth)** — `ble_service.dart` scans for nearby devices, matches via `ble_uuid`
-- **GPS** — `location_service.dart` updates location to Firestore, `firebase_service.dart` queries nearby users with haversine distance calculation
+Two discovery modes available on the **Nearby** tab:
+
+- **BLE (Bluetooth)**  
+  `ble_service.dart` triggers a Bluetooth Low Energy scan to detect nearby physical devices. After the scan, `firebase_service.dart` fetches all Firestore users marked `discoverable: true` in the current mode. The BLE scan acts as a proximity gate — confirming that real devices are in range — while Firestore supplies the profile data.
+
+- **GPS**  
+  `location_service.dart` obtains the device's coordinates via the `geolocator` package and writes them to the user's Firestore document. `firebase_service.dart` then queries all users in the same mode and calculates **haversine distance** to each one, returning only those within a **10 km** radius. Location updates run every 30 seconds while the Nearby tab is active.
+
+Both modes display each discovered user as a card showing their avatar, name, headline, and a **live connection status indicator**:
+
+| Status | Label | Color | Action |
+|--------|-------|-------|--------|
+| No connection | *Connect* | Green icon | Sends a connection request |
+| Request sent | *Pending* | Orange | No action (waiting for response) |
+| Request received | *Accept?* | Blue | Tap to open Connection Requests screen |
+| Already connected | *Connected* | Green | No action |
+
+### **Content Visibility System**
+
+Every post, story, and reel is stored with a `visibility` field inherited from the author's privacy setting at the time of creation:
+
+| Setting | Who can see the content |
+|---------|------------------------|
+| `public` | Everyone in the same mode |
+| `connections` | Only accepted connections + the author |
+| `private` | Only the author |
+
+Filtering happens client-side in `app_state.dart` listeners — content that the current user is not allowed to see is excluded before it reaches the UI. This means feeds update instantly when a user changes their privacy setting or a new connection is accepted.
+
+### **Connection Request Flow**
+
+1. User A taps **Connect** on User B's card (Nearby screen or profile).
+2. A `connections` document is created in Firestore with `status: 'pending'`.
+3. User B sees the request in **Settings → Connection Requests** and can **Accept** or **Decline**.
+4. If declined, the connection document is removed, and User A can re-send the request later.
+5. If accepted, both users appear in each other's **Connections** list and can see each other's `connections`-visibility content.
 
 ### **Real-time Data**
 
 All data flows via Firestore `snapshots()` streams:
-- Feed posts, stories, and reels update in real-time
+- Feed posts, stories, and reels update in real-time (with visibility filtering)
 - Chat messages appear instantly for both participants
 - Notifications stream to the notification badge
+- Connection status (sent/received/accepted) is tracked via dedicated streams and reflected across the UI
 - Connections and job postings reflect changes live
 
 ### **Security**
@@ -293,8 +328,10 @@ Firebase Spark plan (free) is generous for development and small apps:
 | Issue | Solution |
 |-------|---------|
 | `Firebase.initializeApp()` fails | Run `flutterfire configure` to generate config files |
-| BLE not working | Use a physical device, grant Bluetooth + Location permissions |
-| GPS shows no users | Ensure location permission granted; other users must have location enabled |
+| BLE not working | Use a physical device, grant Bluetooth + Location permissions. On Android 12+, `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` permissions are required. |
+| GPS shows no users | Ensure location permission granted; other users must have location enabled and be within 10 km. Check that both users are in the **same mode** (Formal or Casual). |
+| Connection request not received | Verify both users are online and the recipient checks **Settings → Connection Requests**. If a previous request was declined, the sender can re-send. |
+| Content not visible | The author's privacy setting may be set to *connections* or *private*. Accept a connection request or ask the author to change their visibility in Settings. |
 | Images not loading | Verify Firebase Storage rules allow authenticated reads |
 | Push notifications not received | Check FCM token is stored in user document; verify `notification_service.dart` init |
 | Videos won't play | Ensure `video_player` dependency is installed; check Storage URLs |
@@ -334,4 +371,4 @@ This project is a prototype for educational/demonstration purposes.
 
 ---
 
-**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: February 2026**
+**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: June 2025**

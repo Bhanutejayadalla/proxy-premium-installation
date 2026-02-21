@@ -31,7 +31,11 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _reelsSub;
   StreamSubscription? _jobsSub;
   StreamSubscription? _connectionsSub;
+  StreamSubscription? _sentRequestsSub;
+  StreamSubscription? _receivedRequestsSub;
   List<String> _connectedUids = []; // UIDs of accepted connections
+  List<String> _pendingSentUids = []; // UIDs where current user sent pending request
+  List<String> _pendingReceivedUids = []; // UIDs who sent current user a pending request
 
   AppState() {
     // Listen for Firebase Auth state changes (auto-login on restart)
@@ -146,20 +150,40 @@ class AppState extends ChangeNotifier {
         }).toList();
         notifyListeners();
       });
+
+      // Track pending sent requests
+      _sentRequestsSub =
+          firebase.getSentRequestsStream(currentUser!.uid).listen((list) {
+        _pendingSentUids = list
+            .map((m) => m['to'] as String? ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList();
+        notifyListeners();
+      });
+
+      // Track pending received requests
+      _receivedRequestsSub =
+          firebase.getPendingRequestsStream(currentUser!.uid).listen((list) {
+        _pendingReceivedUids = list
+            .map((m) => m['from'] as String? ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList();
+        notifyListeners();
+      });
     }
 
     _feedSub = firebase.getFeedStream(currentMode).listen((posts) {
-      feed = posts;
+      feed = posts.where(_isPostVisible).toList();
       notifyListeners();
     });
 
     _storySub = firebase.getStoriesStream(currentMode).listen((storyList) {
-      stories = storyList;
+      stories = storyList.where(_isStoryVisible).toList();
       notifyListeners();
     });
 
     _reelsSub = firebase.getReelsStream(currentMode).listen((reelList) {
-      reels = reelList;
+      reels = reelList.where(_isPostVisible).toList();
       notifyListeners();
     });
 
@@ -169,25 +193,46 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  /// Check if a given user's content is visible to the current user.
-  /// Returns true if:
-  ///   - author is the current user
-  ///   - author's visibility is 'public' (or not set)
-  ///   - author's visibility is 'connections' AND current user is connected
-  Future<bool> isContentVisibleFrom(String authorUid) async {
+  // ---- Visibility helpers ----
+
+  /// Check if a Post is visible to the current user based on author's visibility setting.
+  bool _isPostVisible(Post post) {
     if (currentUser == null) return false;
-    if (authorUid == currentUser!.uid) return true;
-    final author = await firebase.getUser(authorUid);
-    if (author == null) return true; // default visible
-    if (author.visibility == 'private') return false;
-    if (author.visibility == 'connections') {
-      return _connectedUids.contains(authorUid);
-    }
-    return true; // public
+    if (post.authorId == currentUser!.uid) return true; // own content
+    final vis = post.visibility;
+    if (vis == 'private') return false;
+    if (vis == 'connections') return _connectedUids.contains(post.authorId);
+    return true; // public or unset
+  }
+
+  /// Check if a story map is visible to the current user.
+  bool _isStoryVisible(Map<String, dynamic> story) {
+    if (currentUser == null) return false;
+    final authorId = story['author_id'] ?? '';
+    if (authorId == currentUser!.uid) return true;
+    final vis = story['visibility'] ?? 'public';
+    if (vis == 'private') return false;
+    if (vis == 'connections') return _connectedUids.contains(authorId);
+    return true;
   }
 
   /// List of connected user UIDs (accepted connections)
   List<String> get connectedUids => _connectedUids;
+
+  /// UIDs where current user sent a pending request
+  List<String> get pendingSentUids => _pendingSentUids;
+
+  /// UIDs who sent current user a pending request
+  List<String> get pendingReceivedUids => _pendingReceivedUids;
+
+  /// Get the connection status with another user (synchronous, uses cached data).
+  /// Returns: 'accepted', 'pending_sent', 'pending_received', or 'none'
+  String connectionStatusWith(String uid) {
+    if (_connectedUids.contains(uid)) return 'accepted';
+    if (_pendingSentUids.contains(uid)) return 'pending_sent';
+    if (_pendingReceivedUids.contains(uid)) return 'pending_received';
+    return 'none';
+  }
 
   void _stopListeners() {
     _feedSub?.cancel();
@@ -195,6 +240,8 @@ class AppState extends ChangeNotifier {
     _reelsSub?.cancel();
     _jobsSub?.cancel();
     _connectionsSub?.cancel();
+    _sentRequestsSub?.cancel();
+    _receivedRequestsSub?.cancel();
   }
 
   /// Manual refresh (pull-to-refresh) — re-subscribe.
@@ -222,6 +269,7 @@ class AppState extends ChangeNotifier {
       mode: currentMode,
       type: isStory ? 'story' : 'post',
       mediaUrl: mediaUrl,
+      visibility: currentUser!.visibility,
     );
   }
 
@@ -238,6 +286,7 @@ class AppState extends ChangeNotifier {
       mode: currentMode,
       type: 'reel',
       mediaUrl: mediaUrl,
+      visibility: currentUser!.visibility,
     );
   }
 

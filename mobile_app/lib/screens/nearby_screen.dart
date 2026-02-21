@@ -271,6 +271,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     final user = state.nearbyUsers[i];
                     final avatar = user.getAvatar(state.isFormal);
                     final isPending = _pendingRequests.contains(user.uid);
+                    final connStatus = state.connectionStatusWith(user.uid);
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundImage:
@@ -300,18 +301,61 @@ class _NearbyScreenState extends State<NearbyScreen> {
                               ),
                             ),
                           ),
-                          isPending
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2))
-                              : IconButton(
-                                  icon: const Icon(LucideIcons.userPlus,
-                                      color: Colors.green),
-                                  onPressed: () =>
-                                      _handleConnectionRequest(state, user.uid),
-                                ),
+                          if (connStatus == 'accepted')
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text("Connected",
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.bold)),
+                            )
+                          else if (connStatus == 'pending_sent')
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text("Pending",
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.orange,
+                                      fontWeight: FontWeight.bold)),
+                            )
+                          else if (connStatus == 'pending_received')
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text("Accept?",
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.blue,
+                                      fontWeight: FontWeight.bold)),
+                            )
+                          else
+                            isPending
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2))
+                                : IconButton(
+                                    icon: const Icon(LucideIcons.userPlus,
+                                        color: Colors.green),
+                                    onPressed: () =>
+                                        _handleConnectionRequest(state, user.uid),
+                                  ),
                         ],
                       ),
                       onTap: () => Navigator.push(

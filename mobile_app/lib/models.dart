@@ -190,6 +190,7 @@ class Post {
   final int views;
   final int shares;
   final String type; // post | story | reel
+  final String visibility; // public | connections | private
 
   Post({
     required this.id,
@@ -205,6 +206,7 @@ class Post {
     this.views = 0,
     this.shares = 0,
     this.type = 'post',
+    this.visibility = 'public',
   });
 
   factory Post.fromFirestore(DocumentSnapshot doc) {
@@ -225,6 +227,7 @@ class Post {
       views: d['views'] ?? 0,
       shares: d['shares'] ?? 0,
       type: d['type'] ?? 'post',
+      visibility: d['visibility'] ?? 'public',
     );
   }
 
@@ -246,6 +249,7 @@ class Post {
       views: json['views'] ?? 0,
       shares: json['shares'] ?? 0,
       type: json['type'] ?? 'post',
+      visibility: json['visibility'] ?? 'public',
     );
   }
 }
