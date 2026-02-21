@@ -6,8 +6,43 @@ import '../widgets/post_card.dart';
 import 'story_view_screen.dart';
 import 'create_post_screen.dart';
 
+/// Represents a group of stories from one user.
+class _StoryGroup {
+  final String authorId;
+  final String username;
+  final String avatarUrl;
+  final List<Map<String, dynamic>> stories;
+
+  _StoryGroup({
+    required this.authorId,
+    required this.username,
+    required this.avatarUrl,
+    required this.stories,
+  });
+}
+
 class FeedScreen extends StatelessWidget {
   const FeedScreen({super.key});
+
+  /// Group stories by author so the same person has one circle.
+  List<_StoryGroup> _groupStories(List<Map<String, dynamic>> stories) {
+    final Map<String, _StoryGroup> grouped = {};
+    for (final story in stories) {
+      final authorId = story['author_id'] ?? '';
+      if (authorId.isEmpty) continue;
+      if (grouped.containsKey(authorId)) {
+        grouped[authorId]!.stories.add(story);
+      } else {
+        grouped[authorId] = _StoryGroup(
+          authorId: authorId,
+          username: story['username'] ?? '',
+          avatarUrl: story['author_avatar'] ?? '',
+          stories: [story],
+        );
+      }
+    }
+    return grouped.values.toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,6 +50,9 @@ class FeedScreen extends StatelessWidget {
     final color =
         state.isFormal ? AppColors.formalPrimary : AppColors.casualPrimary;
     final modeName = state.isFormal ? "Professional" : "Social";
+
+    // Group stories by user
+    final storyGroups = _groupStories(state.stories);
 
     return RefreshIndicator(
       onRefresh: () async => state.refresh(),
@@ -32,58 +70,91 @@ class FeedScreen extends StatelessWidget {
             ),
           ),
 
-          // STORIES AREA (mode-specific)
+          // STORIES AREA — grouped by user (one circle per person)
           SliverToBoxAdapter(
             child: SizedBox(
               height: 100,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: state.stories.length + 1,
+                itemCount: storyGroups.length + 1,
                 itemBuilder: (ctx, i) {
-                  if (i == 0) return _addStoryBtn(context);
-                  final story = state.stories[i - 1];
+                  if (i == 0) return _addStoryBtn(context, color);
+
+                  final group = storyGroups[i - 1];
+                  final hasMultiple = group.stories.length > 1;
+                  final avatarImg = group.avatarUrl.isNotEmpty
+                      ? group.avatarUrl
+                      : (group.stories.first['media_url'] ?? '');
+
                   return GestureDetector(
                     onTap: () {
+                      // Open the first story; if multiple, user can swipe
                       Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) =>
-                                  StoryViewScreen(story: story)));
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => StoryViewScreen(
+                            story: group.stories.first,
+                            storyGroup: group.stories,
+                          ),
+                        ),
+                      );
                     },
                     child: Container(
                       margin: const EdgeInsets.only(right: 12),
                       child: Column(children: [
-                        Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: color, width: 2),
-                          ),
-                          child: CircleAvatar(
-                            radius: 30,
-                            backgroundImage: (story['author_avatar'] ??
-                                            story['media_url'] ??
-                                            '')
-                                        .toString()
-                                        .isNotEmpty
-                                ? NetworkImage(story['author_avatar'] ??
-                                    story['media_url'] ??
-                                    '')
-                                : null,
-                            child: (story['author_avatar'] ??
-                                            story['media_url'] ??
-                                            '')
-                                        .toString()
-                                        .isEmpty
-                                ? Text((story['username'] ?? '?')[0],
-                                    style: const TextStyle(fontSize: 14))
-                                : null,
-                          ),
+                        Stack(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: color, width: 2),
+                              ),
+                              child: CircleAvatar(
+                                radius: 30,
+                                backgroundImage: avatarImg.isNotEmpty
+                                    ? NetworkImage(avatarImg)
+                                    : null,
+                                child: avatarImg.isEmpty
+                                    ? Text(
+                                        (group.username.isNotEmpty
+                                                ? group.username
+                                                : '?')[0]
+                                            .toUpperCase(),
+                                        style: const TextStyle(fontSize: 14))
+                                    : null,
+                              ),
+                            ),
+                            if (hasMultiple)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: color,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text("${group.stories.length}",
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 4),
-                        Text(story['username'] ?? '',
-                            style: const TextStyle(fontSize: 10)),
+                        SizedBox(
+                          width: 64,
+                          child: Text(
+                            group.username,
+                            style: const TextStyle(fontSize: 10),
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                       ]),
                     ),
                   );
@@ -92,7 +163,7 @@ class FeedScreen extends StatelessWidget {
             ),
           ),
 
-          // FEED POSTS (mode-specific — only shows posts matching current mode)
+          // FEED POSTS (mode-specific)
           state.feed.isEmpty
               ? SliverFillRemaining(
                   child: Center(
@@ -112,7 +183,7 @@ class FeedScreen extends StatelessWidget {
     );
   }
 
-  Widget _addStoryBtn(BuildContext context) {
+  Widget _addStoryBtn(BuildContext context, Color color) {
     return GestureDetector(
       onTap: () => Navigator.push(
           context,
@@ -126,9 +197,9 @@ class FeedScreen extends StatelessWidget {
             height: 64,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.blue, width: 2),
+              border: Border.all(color: color, width: 2),
             ),
-            child: const Icon(Icons.add, color: Colors.blue),
+            child: Icon(Icons.add, color: color),
           ),
           const SizedBox(height: 4),
           const Text("Your Story", style: TextStyle(fontSize: 10)),

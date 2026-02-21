@@ -4,38 +4,78 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
 
+/// Full-screen story viewer.
+///
+/// Supports a single story (backward-compatible) **or** a group of stories
+/// from the same user.  When a group is provided, the viewer auto-advances
+/// through them with individual progress segments.
 class StoryViewScreen extends StatefulWidget {
   final dynamic story;
-  const StoryViewScreen({super.key, required this.story});
+  final List<Map<String, dynamic>>? storyGroup;
+
+  const StoryViewScreen({
+    super.key,
+    required this.story,
+    this.storyGroup,
+  });
 
   @override
   State<StoryViewScreen> createState() => _StoryViewScreenState();
 }
 
 class _StoryViewScreenState extends State<StoryViewScreen> {
-  double _progress = 0.0;
+  late List<Map<String, dynamic>> _stories;
+  int _currentIndex = 0;
+  double _segmentProgress = 0.0;
   Timer? _timer;
   bool _isPaused = false;
   final TextEditingController _replyCtrl = TextEditingController();
 
+  Map<String, dynamic> get _current => _stories[_currentIndex];
+
   @override
   void initState() {
     super.initState();
+    if (widget.storyGroup != null && widget.storyGroup!.isNotEmpty) {
+      _stories = widget.storyGroup!;
+    } else {
+      _stories = [widget.story as Map<String, dynamic>];
+    }
     _startTimer();
   }
 
   void _startTimer() {
-    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      if (!_isPaused) {
-        setState(() {
-          _progress += 0.01;
-          if (_progress >= 1.0) {
-            _timer?.cancel();
-            Navigator.pop(context);
-          }
-        });
-      }
+    _timer?.cancel();
+    _segmentProgress = 0.0;
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (_isPaused) return;
+      setState(() {
+        _segmentProgress += 0.01;
+        if (_segmentProgress >= 1.0) {
+          _goNext();
+        }
+      });
     });
+  }
+
+  void _goNext() {
+    if (_currentIndex < _stories.length - 1) {
+      _currentIndex++;
+      _startTimer();
+    } else {
+      _timer?.cancel();
+      Navigator.pop(context);
+    }
+  }
+
+  void _goPrev() {
+    if (_currentIndex > 0) {
+      _currentIndex--;
+      _startTimer();
+    } else {
+      _segmentProgress = 0.0;
+      _startTimer();
+    }
   }
 
   void _sendReply() async {
@@ -43,7 +83,7 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
     _timer?.cancel();
 
     final state = Provider.of<AppState>(context, listen: false);
-    final authorId = widget.story['author_id'] ?? '';
+    final authorId = _current['author_id'] ?? '';
     if (state.currentUser != null && authorId.isNotEmpty) {
       final chatId = state.getChatId(authorId);
       await state.sendMessage(
@@ -56,26 +96,37 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text("Reply sent!")));
-      Navigator.pop(context);
+      _replyCtrl.clear();
+      _goNext();
     }
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _replyCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final mediaUrl = widget.story['media_url'];
+    final mediaUrl = _current['media_url'];
+    final screenW = MediaQuery.of(context).size.width;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: GestureDetector(
           onTapDown: (_) => setState(() => _isPaused = true),
-          onTapUp: (_) => setState(() => _isPaused = false),
+          onTapUp: (details) {
+            setState(() => _isPaused = false);
+            // Left third => previous, right third => next
+            if (details.localPosition.dx < screenW / 3) {
+              _goPrev();
+            } else if (details.localPosition.dx > screenW * 2 / 3) {
+              _goNext();
+            }
+          },
           child: Stack(
             children: [
               // STORY CONTENT
@@ -91,44 +142,76 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                     : Container(
                         color: Colors.blue,
                         alignment: Alignment.center,
-                        child: Text(widget.story['text'] ?? '',
+                        child: Text(_current['text'] ?? '',
                             style: const TextStyle(
                                 color: Colors.white, fontSize: 24)),
                       ),
               ),
 
-              // PROGRESS BAR
+              // SEGMENTED PROGRESS BAR (one segment per story)
               Positioned(
                 top: 10,
                 left: 10,
                 right: 10,
-                child: LinearProgressIndicator(
-                    value: _progress,
-                    color: Colors.white,
-                    backgroundColor: Colors.white24),
+                child: Row(
+                  children: List.generate(_stories.length, (i) {
+                    double value;
+                    if (i < _currentIndex) {
+                      value = 1.0;
+                    } else if (i == _currentIndex) {
+                      value = _segmentProgress;
+                    } else {
+                      value = 0.0;
+                    }
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                            right: i < _stories.length - 1 ? 4 : 0),
+                        child: LinearProgressIndicator(
+                          value: value,
+                          color: Colors.white,
+                          backgroundColor: Colors.white24,
+                          minHeight: 2.5,
+                        ),
+                      ),
+                    );
+                  }),
+                ),
               ),
 
-              // USER INFO
+              // USER INFO + CLOSE
               Positioned(
-                top: 30,
+                top: 24,
                 left: 15,
+                right: 15,
                 child: Row(
                   children: [
                     CircleAvatar(
                       radius: 16,
-                      backgroundImage: (widget.story['author_avatar'] ?? '').toString().isNotEmpty
-                          ? NetworkImage(widget.story['author_avatar'])
-                          : null,
-                      child: (widget.story['author_avatar'] ?? '').toString().isEmpty
-                          ? Text((widget.story['username'] ?? '?')[0],
-                              style: const TextStyle(color: Colors.white, fontSize: 12))
-                          : null,
+                      backgroundImage:
+                          (_current['author_avatar'] ?? '').toString().isNotEmpty
+                              ? NetworkImage(_current['author_avatar'])
+                              : null,
+                      child:
+                          (_current['author_avatar'] ?? '').toString().isEmpty
+                              ? Text(
+                                  (_current['username'] ?? '?')[0]
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 12))
+                              : null,
                     ),
                     const SizedBox(width: 10),
-                    Text(widget.story['username'] ?? '',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
+                    Expanded(
+                      child: Text(_current['username'] ?? '',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
                   ],
                 ),
               ),

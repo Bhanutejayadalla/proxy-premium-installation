@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
+import 'connection_requests_screen.dart';
 
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
@@ -67,26 +68,30 @@ class NotificationsScreen extends StatelessWidget {
                   ),
                 ),
                 trailing: item.type == 'connection_request'
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.check, color: Colors.green),
-                            onPressed: () {
-                              // Accept not available without connection id from stream
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, color: Colors.red),
-                            onPressed: () {},
-                          ),
-                        ],
+                    ? TextButton(
+                        child: const Text("View"),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    const ConnectionRequestsScreen()),
+                          );
+                        },
                       )
                     : null,
                 tileColor: item.read ? null : Colors.blue.withOpacity(0.05),
                 onTap: () {
                   if (item.id.isNotEmpty && !item.read) {
                     state.firebase.markNotificationRead(item.id);
+                  }
+                  // For connection requests, navigate to the requests screen
+                  if (item.type == 'connection_request') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ConnectionRequestsScreen()),
+                    );
                   }
                 },
               );

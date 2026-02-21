@@ -30,6 +30,8 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _storySub;
   StreamSubscription? _reelsSub;
   StreamSubscription? _jobsSub;
+  StreamSubscription? _connectionsSub;
+  List<String> _connectedUids = []; // UIDs of accepted connections
 
   AppState() {
     // Listen for Firebase Auth state changes (auto-login on restart)
@@ -133,6 +135,19 @@ class AppState extends ChangeNotifier {
   void _startListeners() {
     _stopListeners();
 
+    // Track accepted connections — needed for visibility filtering
+    if (currentUser != null) {
+      _connectionsSub =
+          firebase.getConnectionsStream(currentUser!.uid).listen((list) {
+        _connectedUids = list.map((m) {
+          final from = m['from'] as String? ?? '';
+          final to = m['to'] as String? ?? '';
+          return from == currentUser!.uid ? to : from;
+        }).toList();
+        notifyListeners();
+      });
+    }
+
     _feedSub = firebase.getFeedStream(currentMode).listen((posts) {
       feed = posts;
       notifyListeners();
@@ -154,11 +169,32 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// Check if a given user's content is visible to the current user.
+  /// Returns true if:
+  ///   - author is the current user
+  ///   - author's visibility is 'public' (or not set)
+  ///   - author's visibility is 'connections' AND current user is connected
+  Future<bool> isContentVisibleFrom(String authorUid) async {
+    if (currentUser == null) return false;
+    if (authorUid == currentUser!.uid) return true;
+    final author = await firebase.getUser(authorUid);
+    if (author == null) return true; // default visible
+    if (author.visibility == 'private') return false;
+    if (author.visibility == 'connections') {
+      return _connectedUids.contains(authorUid);
+    }
+    return true; // public
+  }
+
+  /// List of connected user UIDs (accepted connections)
+  List<String> get connectedUids => _connectedUids;
+
   void _stopListeners() {
     _feedSub?.cancel();
     _storySub?.cancel();
     _reelsSub?.cancel();
     _jobsSub?.cancel();
+    _connectionsSub?.cancel();
   }
 
   /// Manual refresh (pull-to-refresh) — re-subscribe.

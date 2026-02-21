@@ -342,7 +342,17 @@ These features make Firestore / Firebase / Cloudinary calls and will fail or sho
 | **BLE Nearby — Show Profiles** | BLE finds devices locally, but profile data (name, avatar) is fetched from Firestore |
 | **Job Board** | Jobs loaded from Firestore |
 | **Connection Requests** | Written to Firestore |
+| **Accepting Connection Requests** | Writes to Firestore — the recipient **cannot** accept a request offline |
 | **Profile Updates** | Written to Firestore + avatar uploaded to Cloudinary |
+
+> **Can the other person accept a connection request offline?**
+>
+> **No.** When you send a connection request, the data is written to Firestore.
+> The recipient must have an active internet connection to:
+> 1. **See** the incoming request (it is loaded from Firestore into Notifications and Connection Requests screens).
+> 2. **Accept or Decline** the request (tapping Accept/Decline writes back to Firestore to update the connection status).
+>
+> If the recipient is offline, they will see and be able to act on the request the next time they open the app with internet.
 
 ---
 

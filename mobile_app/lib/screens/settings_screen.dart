@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../app_state.dart';
+import '../models.dart';
 import 'edit_profile_screen.dart';
+import 'connection_requests_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -40,6 +42,38 @@ class SettingsScreen extends StatelessWidget {
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
                       _showPrivacySheet(context);
+                    },
+                  ),
+                  StreamBuilder<List<Connection>>(
+                    stream: state.pendingRequestsStream,
+                    builder: (ctx, snap) {
+                      final count = snap.data?.length ?? 0;
+                      return ListTile(
+                        leading: const Icon(LucideIcons.userPlus),
+                        title: const Text("Connection Requests"),
+                        subtitle: Text(count > 0
+                            ? "$count pending request${count == 1 ? '' : 's'}"
+                            : "No pending requests"),
+                        trailing: count > 0
+                            ? CircleAvatar(
+                                radius: 12,
+                                backgroundColor: Colors.red,
+                                child: Text("$count",
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold)),
+                              )
+                            : const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    const ConnectionRequestsScreen()),
+                          );
+                        },
+                      );
                     },
                   ),
                   const Divider(),
