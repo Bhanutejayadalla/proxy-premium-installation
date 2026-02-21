@@ -144,14 +144,45 @@ class ProfileScreen extends StatelessWidget {
                         itemCount: posts.length,
                         itemBuilder: (ctx, i) {
                           final p = posts[i];
-                          if (p.mediaUrl == null) {
-                            return Container(
-                                color: Colors.grey[300],
-                                child: const Icon(Icons.text_fields));
-                          }
-                          return CachedNetworkImage(
-                            imageUrl: p.mediaUrl!,
-                            fit: BoxFit.cover,
+                          return GestureDetector(
+                            onLongPress: () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text("Delete Post"),
+                                  content: const Text(
+                                      "Are you sure you want to delete this post?"),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text("Cancel")),
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text("Delete",
+                                            style: TextStyle(
+                                                color: Colors.red))),
+                                  ],
+                                ),
+                              );
+                              if (confirmed == true && context.mounted) {
+                                await state.deletePost(p.id);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content: Text("Post deleted")));
+                                }
+                              }
+                            },
+                            child: p.mediaUrl == null
+                                ? Container(
+                                    color: Colors.grey[300],
+                                    child: const Icon(Icons.text_fields))
+                                : CachedNetworkImage(
+                                    imageUrl: p.mediaUrl!,
+                                    fit: BoxFit.cover,
+                                  ),
                           );
                         },
                       );

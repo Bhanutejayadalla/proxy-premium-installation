@@ -51,21 +51,27 @@ service cloud.firestore {
 
     // ── Chats & Messages ──────────────────────────────────────
     match /chats/{chatId} {
-      allow read: if isSignedIn();
+      allow read, create, update: if isSignedIn();
 
       match /messages/{messageId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn();
+        allow read, create: if isSignedIn();
+      }
+    }
+
+    // ── Group Chats & Messages ────────────────────────────────
+    match /group_chats/{groupId} {
+      allow read, create, update: if isSignedIn();
+
+      match /messages/{messageId} {
+        allow read, create: if isSignedIn();
       }
     }
 
     // ── Notifications ─────────────────────────────────────────
     match /notifications/{notifId} {
-      allow read: if isSignedIn()
-                  && resource.data.to_uid == request.auth.uid;
+      allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow update: if isSignedIn()
-                    && resource.data.to_uid == request.auth.uid;
+      allow update: if isSignedIn();
     }
 
     // ── Jobs ──────────────────────────────────────────────────

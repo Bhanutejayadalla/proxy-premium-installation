@@ -182,6 +182,45 @@ class FirebaseService {
     await _db.collection('posts').doc(postId).delete();
   }
 
+  Future<void> deleteReel(String reelId) async {
+    await _db.collection('reels').doc(reelId).delete();
+  }
+
+  Future<void> deleteStory(String storyId) async {
+    await _db.collection('stories').doc(storyId).delete();
+  }
+
+  Future<void> deleteConnection(String connectionId) async {
+    final doc = await _db.collection('connections').doc(connectionId).get();
+    if (!doc.exists) return;
+    final data = doc.data()!;
+    // Remove mutual follow if it was accepted
+    if (data['status'] == 'accepted') {
+      final from = data['from'] as String;
+      final to = data['to'] as String;
+      await unfollowUser(from, to);
+    }
+    await _db.collection('connections').doc(connectionId).delete();
+  }
+
+  /// Find the connection doc ID between two users (any direction, any status).
+  Future<String?> findConnectionId(String uid1, String uid2) async {
+    final q1 = await _db
+        .collection('connections')
+        .where('from', isEqualTo: uid1)
+        .where('to', isEqualTo: uid2)
+        .get();
+    if (q1.docs.isNotEmpty) return q1.docs.first.id;
+
+    final q2 = await _db
+        .collection('connections')
+        .where('from', isEqualTo: uid2)
+        .where('to', isEqualTo: uid1)
+        .get();
+    if (q2.docs.isNotEmpty) return q2.docs.first.id;
+    return null;
+  }
+
   // ─────────────────────────────────────────────
   //  USER POSTS
   // ─────────────────────────────────────────────
@@ -576,4 +615,91 @@ class FirebaseService {
   }
 
   double _toRad(double deg) => deg * pi / 180;
+
+  // ─────────────────────────────────────────────
+  //  GROUP CHAT OPERATIONS
+  // ─────────────────────────────────────────────
+
+  /// Create a new group chat and return its document ID.
+  Future<String> createGroupChat({
+    required String name,
+    required String creatorUid,
+    required List<String> memberUids,
+  }) async {
+    final all = <String>{creatorUid, ...memberUids}.toList();
+    final doc = await _db.collection('group_chats').add({
+      'name': name,
+      'creator': creatorUid,
+      'members': all,
+      'last_message': '',
+      'last_timestamp': FieldValue.serverTimestamp(),
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    return doc.id;
+  }
+
+  /// Stream of group chats this user is a member of.
+  Stream<List<Map<String, dynamic>>> getGroupChatsStream(String uid) {
+    return _db
+        .collection('group_chats')
+        .where('members', arrayContains: uid)
+        .orderBy('last_timestamp', descending: true)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+  }
+
+  /// Send a message in a group chat.
+  Future<void> sendGroupMessage({
+    required String groupId,
+    required String senderUid,
+    required String senderUsername,
+    String? text,
+    String? fileUrl,
+    String? fileType,
+  }) async {
+    await _db.collection('group_chats').doc(groupId).update({
+      'last_message': text ?? (fileType != null ? 'Sent a $fileType' : ''),
+      'last_timestamp': FieldValue.serverTimestamp(),
+    });
+
+    await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .add({
+      'sender_uid': senderUid,
+      'sender_username': senderUsername,
+      'text': text ?? '',
+      'file_url': fileUrl,
+      'file_type': fileType,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Stream of messages in a group chat.
+  Stream<List<Map<String, dynamic>>> getGroupChatStream(String groupId) {
+    return _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+  }
+
+  /// Add members to an existing group chat.
+  Future<void> addGroupMembers(String groupId, List<String> uids) async {
+    await _db.collection('group_chats').doc(groupId).update({
+      'members': FieldValue.arrayUnion(uids),
+    });
+  }
+
+  /// Remove a member from a group chat.
+  Future<void> removeGroupMember(String groupId, String uid) async {
+    await _db.collection('group_chats').doc(groupId).update({
+      'members': FieldValue.arrayRemove([uid]),
+    });
+  }
 }

@@ -74,6 +74,56 @@ class _PostCardState extends State<PostCard> {
     if (mounted) setState(() => _showHeart = false);
   }
 
+  Widget? _buildMenu(BuildContext context) {
+    final state = Provider.of<AppState>(context, listen: false);
+    final isOwner = widget.post.authorId == state.currentUser?.uid;
+    if (!isOwner) return null;
+
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, size: 20),
+      onSelected: (value) async {
+        if (value == 'delete') {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Delete Post"),
+              content:
+                  const Text("Are you sure you want to delete this post?"),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text("Cancel")),
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text("Delete",
+                        style: TextStyle(color: Colors.red))),
+              ],
+            ),
+          );
+          if (confirmed == true && context.mounted) {
+            await state.deletePost(widget.post.id);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Post deleted")));
+            }
+          }
+        }
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text("Delete", style: TextStyle(color: Colors.red)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showComments(BuildContext context) {
     final commentCtrl = TextEditingController();
     showModalBottomSheet(
@@ -220,6 +270,7 @@ class _PostCardState extends State<PostCard> {
             ),
             title: Text(widget.post.username,
                 style: const TextStyle(fontWeight: FontWeight.bold)),
+            trailing: _buildMenu(context),
           ),
 
           // MEDIA with double-tap like animation

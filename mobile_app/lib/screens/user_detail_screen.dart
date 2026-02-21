@@ -139,12 +139,75 @@ class UserDetailScreen extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: connStatus == 'accepted'
-                      ? OutlinedButton.icon(
-                          icon: const Icon(LucideIcons.userCheck,
-                              color: Colors.green),
-                          label: const Text("Connected",
-                              style: TextStyle(color: Colors.green)),
-                          onPressed: null,
+                      ? PopupMenuButton<String>(
+                          onSelected: (value) async {
+                            if (value == 'remove') {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text("Remove Connection"),
+                                  content: Text(
+                                      "Remove ${user.username}? You can reconnect later."),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text("Cancel")),
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text("Remove",
+                                            style: TextStyle(
+                                                color: Colors.red))),
+                                  ],
+                                ),
+                              );
+                              if (confirmed == true && context.mounted) {
+                                await state.removeConnection(user.uid);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content:
+                                              Text("Connection removed")));
+                                }
+                              }
+                            }
+                          },
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
+                              value: 'remove',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.person_remove,
+                                      color: Colors.red, size: 20),
+                                  SizedBox(width: 8),
+                                  Text("Remove",
+                                      style: TextStyle(color: Colors.red)),
+                                ],
+                              ),
+                            ),
+                          ],
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.green),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(LucideIcons.userCheck,
+                                    color: Colors.green, size: 18),
+                                SizedBox(width: 6),
+                                Text("Connected",
+                                    style: TextStyle(color: Colors.green)),
+                                SizedBox(width: 4),
+                                Icon(Icons.arrow_drop_down,
+                                    color: Colors.green, size: 18),
+                              ],
+                            ),
+                          ),
                         )
                       : connStatus == 'pending_sent'
                           ? OutlinedButton.icon(

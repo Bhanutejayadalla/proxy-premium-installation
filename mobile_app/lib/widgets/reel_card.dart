@@ -67,6 +67,33 @@ class _ReelCardState extends State<ReelCard> {
     _isLiking = false;
   }
 
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Reel"),
+        content: const Text("Are you sure you want to delete this reel?"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child:
+                  const Text("Delete", style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      final state = Provider.of<AppState>(context, listen: false);
+      await state.deleteReel(widget.reel.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text("Reel deleted")));
+      }
+    }
+  }
+
   void _showComments(BuildContext context) {
     final commentCtrl = TextEditingController();
     showModalBottomSheet(
@@ -298,6 +325,19 @@ class _ReelCardState extends State<ReelCard> {
                 color: Colors.white,
                 onTap: () {},
               ),
+              // Delete button (only for reel owner)
+              if (Provider.of<AppState>(context, listen: false)
+                      .currentUser
+                      ?.uid ==
+                  widget.reel.authorId) ...[
+                const SizedBox(height: 20),
+                _sideButton(
+                  icon: LucideIcons.trash2,
+                  label: "Delete",
+                  color: Colors.red[300]!,
+                  onTap: () => _confirmDelete(context),
+                ),
+              ],
             ],
           ),
         ),

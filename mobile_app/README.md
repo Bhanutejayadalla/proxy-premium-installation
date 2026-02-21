@@ -14,12 +14,15 @@ The app uses **Bluetooth Low Energy (BLE)** and **GPS** for proximity-based user
 - **Dual Persona System** — Instantly switch between formal and casual modes without logging out
 - **Mode-Specific Content** — Separate feeds, avatars, and UI themes for each mode
 - **Proximity Discovery** — BLE radar + GPS distance scanning with animated UI
-- **Real-time Chat** — Firestore-powered messaging with media sharing
+- **Real-time Chat** — Firestore-powered 1:1 messaging with media sharing
+- **Group Chat** — Create group conversations with your connections (select 2+ members)
 - **Stories & Posts** — Create ephemeral stories (24h auto-expiry) or permanent posts with media
+- **Delete Content** — Delete your own posts, reels, and stories from anywhere in the app
 - **Video Reels** — Record and browse short-form vertical video content (casual mode)
 - **Professional Profiles** — Full name, headline, skills, experience, education (formal mode)
 - **Job Board** — Post and apply for jobs in formal mode
 - **Connection Requests** — Send, accept, or decline connections with smart status indicators (Connected / Pending / Accept); automatically allows re-sending after a declined request
+- **Remove & Reconnect** — Remove any connection and reconnect later from the Nearby or Profile screen
 - **Push Notifications** — FCM-powered notifications for likes, comments, messages, and connections
 - **Content Visibility** — Posts, stories, and reels respect the author's privacy setting (public / connections-only / private) and are filtered in real-time
 - **Connection Status Awareness** — Nearby users and profile pages display live connection state so you never send duplicate requests
@@ -201,7 +204,9 @@ Proxi_Social_Connectivity/
     │   │   ├── connection_requests_screen.dart # Pending requests
     │   │   ├── notifications_screen.dart # Notification feed
     │   │   ├── settings_screen.dart    # App settings & privacy
-    │   │   └── story_view_screen.dart  # Full-screen story viewer
+    │   │   ├── story_view_screen.dart  # Full-screen story viewer
+    │   │   ├── create_group_chat_screen.dart # Create group from connections
+    │   │   └── group_chat_detail_screen.dart # Group chat messages
     │   │
     │   └── widgets/                    # Reusable components (13 files)
     │       ├── mode_switch.dart        # Formal/Casual toggle animation
@@ -371,4 +376,4 @@ This project is a prototype for educational/demonstration purposes.
 
 ---
 
-**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: June 2025**
+**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: February 2026**

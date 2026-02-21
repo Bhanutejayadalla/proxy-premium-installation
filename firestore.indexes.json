@@ -71,6 +71,22 @@
         { "fieldPath": "active", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participants", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "last_timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "group_chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "members", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "last_timestamp", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

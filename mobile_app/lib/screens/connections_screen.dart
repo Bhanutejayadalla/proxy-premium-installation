@@ -90,16 +90,58 @@ class ConnectionsScreen extends StatelessWidget {
                     subtitle: Text(user.headline.isNotEmpty
                         ? user.headline
                         : conn.mode),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(conn.mode,
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.green)),
+                    trailing: PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, size: 20),
+                      onSelected: (value) async {
+                        if (value == 'remove') {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text("Remove Connection"),
+                              content: Text(
+                                  "Remove ${user.username} from your connections? You can reconnect later."),
+                              actions: [
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, false),
+                                    child: const Text("Cancel")),
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, true),
+                                    child: const Text("Remove",
+                                        style: TextStyle(
+                                            color: Colors.red))),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true) {
+                            final appState = Provider.of<AppState>(
+                                context,
+                                listen: false);
+                            await appState.removeConnection(otherUid);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                      content: Text(
+                                          "${user.username} removed")));
+                            }
+                          }
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'remove',
+                          child: Row(
+                            children: [
+                              Icon(Icons.person_remove,
+                                  color: Colors.red, size: 20),
+                              SizedBox(width: 8),
+                              Text("Remove Connection",
+                                  style: TextStyle(color: Colors.red)),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                     onTap: () => Navigator.push(
                         context,

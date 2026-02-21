@@ -29,8 +29,10 @@
 
 ### Real-Time Features
 - **Live Chat**: Direct messages with image sharing
+- **Group Chat**: Create group conversations with 2+ connections
 - **Notifications**: Push alerts for likes, comments, connections
-- **Connection System**: Send/accept requests in Formal mode
+- **Connection System**: Send/accept/remove connections with reconnect support
+- **Delete Content**: Remove your own posts, reels, and stories
 - **Story Replies**: Tap to reply → opens DM
 
 ---
@@ -399,7 +401,7 @@ These features make Firestore / Firebase / Cloudinary calls and will fail or sho
 - `lib/widgets/`: Reusable components (ModeSwitch, PostCard)
 
 **Backend (Firebase)**
-- **Firestore**: NoSQL database (users, posts, stories, chats, notifications)
+- **Firestore**: NoSQL database (users, posts, stories, chats, group_chats, notifications)
 - **Authentication**: Email/password (ready for OAuth expansion)
 - **Cloud Messaging**: Push notifications (FCM tokens in user docs)
 - **Storage Rules**: Security rules in `firestore.rules`

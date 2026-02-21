@@ -306,6 +306,31 @@ class AppState extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────
+  //  DELETE CONTENT
+  // ─────────────────────────────────────────────
+
+  Future<void> deletePost(String postId) async {
+    await firebase.deletePost(postId);
+  }
+
+  Future<void> deleteReel(String reelId) async {
+    await firebase.deleteReel(reelId);
+  }
+
+  Future<void> deleteStory(String storyId) async {
+    await firebase.deleteStory(storyId);
+  }
+
+  /// Remove a connection (accepted, pending, etc.) and allow reconnect later.
+  Future<void> removeConnection(String otherUid) async {
+    if (currentUser == null) return;
+    final connId = await firebase.findConnectionId(currentUser!.uid, otherUid);
+    if (connId != null) {
+      await firebase.deleteConnection(connId);
+    }
+  }
+
+  // ─────────────────────────────────────────────
   //  NEARBY / DISCOVERY
   // ─────────────────────────────────────────────
 
@@ -405,6 +430,45 @@ class AppState extends ChangeNotifier {
       senderUid: currentUser!.uid,
       senderUsername: currentUser!.username,
       receiverUid: receiverUid,
+      text: text,
+      fileUrl: fileUrl,
+      fileType: fileType,
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  //  GROUP CHAT
+  // ─────────────────────────────────────────────
+
+  Future<String?> createGroupChat(String name, List<String> memberUids) async {
+    if (currentUser == null) return null;
+    return await firebase.createGroupChat(
+      name: name,
+      creatorUid: currentUser!.uid,
+      memberUids: memberUids,
+    );
+  }
+
+  Stream<List<Map<String, dynamic>>> get groupChatsStream {
+    if (currentUser == null) return const Stream.empty();
+    return firebase.getGroupChatsStream(currentUser!.uid);
+  }
+
+  Stream<List<Map<String, dynamic>>> getGroupMessages(String groupId) {
+    return firebase.getGroupChatStream(groupId);
+  }
+
+  Future<void> sendGroupMessage({
+    required String groupId,
+    String? text,
+    String? fileUrl,
+    String? fileType,
+  }) async {
+    if (currentUser == null) return;
+    await firebase.sendGroupMessage(
+      groupId: groupId,
+      senderUid: currentUser!.uid,
+      senderUsername: currentUser!.username,
       text: text,
       fileUrl: fileUrl,
       fileType: fileType,
