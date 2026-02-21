@@ -38,12 +38,14 @@
 ## 📋 Table of Contents
 
 1. [Quick Start](#-quick-start)
-2. [Setup Instructions](#-setup-instructions)
-3. [Architecture](#-architecture)
-4. [Technology Stack](#-technology-stack)
-5. [Project Structure](#-project-structure)
-6. [Contributing](#-contributing)
-7. [License](#-license)
+2. [How to Connect Your Phone](#-how-to-connect-your-phone)
+3. [Setup Instructions](#-setup-instructions)
+4. [Offline Features](#-offline-features)
+5. [Architecture](#-architecture)
+6. [Technology Stack](#-technology-stack)
+7. [Project Structure](#-project-structure)
+8. [Contributing](#-contributing)
+9. [License](#-license)
 
 ---
 
@@ -80,7 +82,124 @@ flutter run
 
 ---
 
+## � How to Connect Your Phone
+
+This section covers two methods: **USB** (most reliable) and **Wireless** (Android 11+).
+
+---
+
+### Method 1 — USB Debugging (Recommended)
+
+#### Step 1 — Enable Developer Mode on Your Android Phone
+
+1. Open **Settings** on your phone
+2. Scroll down → tap **About phone**
+3. Find **Build number** (may be under *Software information*)
+4. **Tap Build number 7 times** in quick succession
+5. You'll see: *"You are now a developer!"*
+6. Go back to **Settings** → scroll down → tap **Developer options**
+
+#### Step 2 — Enable USB Debugging
+
+1. Inside **Developer options**, find **USB debugging**
+2. Toggle it **ON**
+3. Tap **OK** on the confirmation popup
+
+#### Step 3 — Connect via USB Cable
+
+1. Plug your phone into your laptop using a **data-capable USB cable**  
+   ⚠️ *Some cables are charge-only — if detection fails, try a different cable*
+2. On your phone, a popup appears: **"Allow USB debugging?"**
+3. Check **"Always allow from this computer"** then tap **Allow**
+4. On your phone, when asked **"Use USB for"**, select **File Transfer (MTP)**
+
+#### Step 4 — Verify Connection
+
+```powershell
+# In your project folder:
+adb devices
+```
+
+You should see something like:
+```
+List of devices attached
+RF8N20XXXXX   device
+```
+
+If it shows `unauthorized` — look at your phone for the debugging popup and tap Allow.
+
+#### Step 5 — Run the App on Your Phone
+
+```powershell
+cd D:\Proxi_Social_Connectivity\mobile_app
+flutter devices          # verify your phone appears
+flutter run              # builds and installs app on phone
+```
+
+The first build takes **3-5 minutes**. Subsequent runs are ~15 seconds (hot reload).
+
+---
+
+### Method 2 — Wireless Debugging (Android 11+)
+
+No USB cable required after initial setup.
+
+#### On Your Phone
+1. Go to **Settings** → **Developer options** → **Wireless debugging**
+2. Toggle **Wireless debugging ON**
+3. Tap **Pair device with pairing code**
+4. Note the **IP address:port** and **pairing code** shown
+
+#### On Your Laptop (same Wi-Fi network)
+
+```powershell
+# Step 1: Pair once using the code from your phone screen
+adb pair <IP_ADDRESS>:<PAIRING_PORT>
+# Enter the 6-digit pairing code when prompted
+
+# Step 2: Connect (use the main port, not the pairing port)
+adb connect <IP_ADDRESS>:<PORT>
+
+# Step 3: Verify
+adb devices
+
+# Step 4: Run app
+cd mobile_app
+flutter run
+```
+
+**Example:**
+```powershell
+adb pair 192.168.1.5:37549   # pairing code: 123456
+adb connect 192.168.1.5:40123
+```
+
+---
+
+### Troubleshooting Connection Issues
+
+| Problem | Solution |
+|---|---|
+| `No devices found` | Check USB cable (use data cable, not charge-only) |
+| `unauthorized` | Accept the USB debugging popup on your phone |
+| Device shows then disappears | Disable battery optimization for ADB |
+| `adb: command not found` | Add Android SDK `platform-tools` to your PATH |
+| Wireless debugging not visible | Requires Android 11 or higher |
+| App installs but crashes | Run `flutter clean` then `flutter run` again |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | Uninstall old version from phone first |
+
+```powershell
+# Quick fix: reset ADB connection
+adb kill-server
+adb start-server
+adb devices
+```
+
+---
+
 ## 🛠 Setup Instructions
+
+> **New here?** Follow the steps in [How to Connect Your Phone](#-how-to-connect-your-phone) first.
 
 ### Complete Guide for New Developers
 
@@ -104,6 +223,57 @@ Follow the comprehensive guide in **[installsteps.md](installsteps.md)** which c
 - Managing branches and pull requests
 
 **Estimated Setup Time**: 20-30 minutes (first-time)
+
+---
+
+## 📶 Offline Features
+
+A breakdown of exactly what works with and without an internet connection.
+
+---
+
+### ✅ Works Without Internet
+
+These features run entirely on-device with no server calls:
+
+| Feature | How it works offline |
+|---|---|
+| **Mode Toggle** (Formal ↔ Casual) | State stored in memory — switches instantly with no network calls |
+| **BLE Scanning (Bluetooth radar)** | Bluetooth hardware scans for nearby devices — the radar animation and device detection work fully offline |
+| **Browse already-loaded feed** | Posts loaded in the current session stay in Provider state — you can scroll through them without reconnecting |
+| **Browse already-loaded stories** | Same as feed — stories visible in current session remain accessible |
+| **Cached profile info** | Your own profile data (name, avatar, bio) loaded at login is available throughout the session |
+| **Compose a post (draft)** | You can type text and pick a photo — the Share button will fail without internet, but drafting works |
+
+---
+
+### ❌ Requires Internet
+
+These features make Firestore / Firebase / Cloudinary calls and will fail or show empty data without a connection:
+
+| Feature | Why it needs internet |
+|---|---|
+| **Login / Sign-Up** | Firebase Auth requires a server call to verify identity |
+| **Loading the Feed** | Posts are fetched via Firestore real-time stream |
+| **Loading Stories** | Stories fetched from Firestore with 24h expiry check |
+| **Loading Reels** | Reel video metadata + URLs fetched from Firestore |
+| **Liking / Commenting** | Writes to Firestore `posts` or `reels` collection |
+| **Publishing a Post/Story/Reel** | Image uploaded to Cloudinary, metadata written to Firestore |
+| **Chat (send/receive)** | Firestore stream subscription for real-time messages |
+| **Push Notifications** | Firebase Cloud Messaging requires internet |
+| **GPS Nearby Discovery** | Device location is obtained offline, but user matching queries Firestore |
+| **BLE Nearby — Show Profiles** | BLE finds devices locally, but profile data (name, avatar) is fetched from Firestore |
+| **Job Board** | Jobs loaded from Firestore |
+| **Connection Requests** | Written to Firestore |
+| **Profile Updates** | Written to Firestore + avatar uploaded to Cloudinary |
+
+---
+
+### 💡 Tips for Low Connectivity
+
+- **Open the app on Wi-Fi first** — data loads into Provider state and stays available during the session even if you step into a weak signal area
+- **BLE proximity works best offline** — if you just need to find who is physically near you, Bluetooth scanning works with airplane mode + Bluetooth enabled
+- **Drafts**: You can compose post text and pick images while offline; tap Share once you regain connectivity
 
 ---
 
