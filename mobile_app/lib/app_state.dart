@@ -18,6 +18,7 @@ class AppState extends ChangeNotifier {
 
   AppUser? currentUser;
   bool isFormal = true;
+  bool isAuthLoading = true; // True until first auth check
   List<Post> feed = [];
   List<Map<String, dynamic>> stories = [];
   List<AppUser> nearbyUsers = [];
@@ -38,13 +39,13 @@ class AppState extends ChangeNotifier {
         if (profile != null) {
           currentUser = profile;
           _startListeners();
-          notifyListeners();
         }
       } else {
         currentUser = null;
         _stopListeners();
-        notifyListeners();
       }
+      isAuthLoading = false;
+      notifyListeners();
     });
   }
 

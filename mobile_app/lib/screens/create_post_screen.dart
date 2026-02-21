@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
+import '../constants.dart';
 
 class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key});
+  final bool initialIsStory;
+  const CreatePostScreen({super.key, this.initialIsStory = false});
   @override
   State<CreatePostScreen> createState() => _CreatePostScreenState();
 }
@@ -13,8 +15,14 @@ class CreatePostScreen extends StatefulWidget {
 class _CreatePostScreenState extends State<CreatePostScreen> {
   final _text = TextEditingController();
   File? _file;
-  bool isStory = false;
+  late bool isStory;
   bool _isPosting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    isStory = widget.initialIsStory;
+  }
 
   Future<void> _handleShare() async {
     if (_isPosting) return;
@@ -35,6 +43,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final state = Provider.of<AppState>(context, listen: false);
+    final color =
+        state.isFormal ? AppColors.formalPrimary : AppColors.casualPrimary;
+    final modeName = state.isFormal ? 'Pro' : 'Social';
+
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
@@ -47,8 +60,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text("Share",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                : Text("Share",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: color)),
           ),
         ],
       ),
@@ -61,6 +75,22 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // MODE INDICATOR
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('Posting to $modeName mode',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: color)),
+                    ),
+                    const SizedBox(height: 12),
+
                     Row(children: [
                       ChoiceChip(
                         label: const Text("Feed Post"),

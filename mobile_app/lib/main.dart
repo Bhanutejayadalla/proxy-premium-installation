@@ -35,6 +35,25 @@ class MyApp extends StatelessWidget {
       ),
       home: Consumer<AppState>(
         builder: (ctx, state, _) {
+          // Show splash while Firebase Auth is resolving cached session
+          if (state.isAuthLoading) {
+            return const Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.people, size: 64, color: Colors.deepPurple),
+                    SizedBox(height: 16),
+                    Text('Proxi',
+                        style: TextStyle(
+                            fontSize: 28, fontWeight: FontWeight.bold)),
+                    SizedBox(height: 12),
+                    CircularProgressIndicator(),
+                  ],
+                ),
+              ),
+            );
+          }
           // If Firebase Auth has a user AND we've loaded the profile, go to Home
           if (state.currentUser != null) return const HomeShell();
           return const AuthScreen();
