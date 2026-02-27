@@ -130,16 +130,24 @@ class AppUser {
   /// Mode-specific followers (falls back to global for legacy users).
   List<String> getFollowersForMode(String mode) {
     final modeList = mode == 'formal' ? followersFormal : followersCasual;
-    if (modeList.isNotEmpty) return modeList;
-    if (followersFormal.isNotEmpty || followersCasual.isNotEmpty) return modeList;
+    // If any mode-specific data exists for any field, trust mode-specific lists
+    final hasModeData = followersFormal.isNotEmpty ||
+        followersCasual.isNotEmpty ||
+        followingFormal.isNotEmpty ||
+        followingCasual.isNotEmpty;
+    if (hasModeData) return modeList;
+    // Legacy user with no mode-specific data — fall back to global
     return followers;
   }
 
   /// Mode-specific following (falls back to global for legacy users).
   List<String> getFollowingForMode(String mode) {
     final modeList = mode == 'formal' ? followingFormal : followingCasual;
-    if (modeList.isNotEmpty) return modeList;
-    if (followingFormal.isNotEmpty || followingCasual.isNotEmpty) return modeList;
+    final hasModeData = followersFormal.isNotEmpty ||
+        followersCasual.isNotEmpty ||
+        followingFormal.isNotEmpty ||
+        followingCasual.isNotEmpty;
+    if (hasModeData) return modeList;
     return following;
   }
 

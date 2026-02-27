@@ -108,7 +108,7 @@ class _JobsScreenState extends State<JobsScreen> {
                   child: FilterChip(
                     label: Text(label),
                     selected: isSelected,
-                    selectedColor: color.withOpacity(0.2),
+                    selectedColor: color.withValues(alpha: 0.2),
                     checkmarkColor: color,
                     onSelected: (_) =>
                         setState(() => _typeFilter = isSelected ? 'all' : type),

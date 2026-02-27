@@ -35,9 +35,9 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   }
 
   void _pickFile() async {
+    final state = Provider.of<AppState>(context, listen: false);
     final x = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (x != null) {
-      final state = Provider.of<AppState>(context, listen: false);
       final path =
           'group_files/${widget.groupId}/${DateTime.now().millisecondsSinceEpoch}';
       final url = await state.firebase.uploadFile(File(x.path), path);

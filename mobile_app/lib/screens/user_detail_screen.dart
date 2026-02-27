@@ -310,7 +310,7 @@ class UserDetailScreen extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: color)),
       child: Text(text,
@@ -338,17 +338,6 @@ class UserDetailScreen extends StatelessWidget {
           Text(label, style: TextStyle(color: Colors.grey[600])),
         ],
       ),
-    );
-  }
-
-  Widget _stat(String label, int count) {
-    return Column(
-      children: [
-        Text("$count",
-            style: const TextStyle(
-                fontSize: 20, fontWeight: FontWeight.bold)),
-        Text(label, style: TextStyle(color: Colors.grey[600])),
-      ],
     );
   }
 }

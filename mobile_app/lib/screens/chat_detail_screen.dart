@@ -36,11 +36,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _pickFile() async {
+    final state = Provider.of<AppState>(context, listen: false);
     final x = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (x != null) {
-      final state = Provider.of<AppState>(context, listen: false);
       final path =
-          'chat_files/${_chatId}/${DateTime.now().millisecondsSinceEpoch}';
+          'chat_files/$_chatId/${DateTime.now().millisecondsSinceEpoch}';
       final url = await state.firebase.uploadFile(File(x.path), path);
       _send(fileUrl: url, fileType: 'image');
     }

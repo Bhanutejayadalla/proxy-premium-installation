@@ -218,6 +218,8 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                             color: Colors.redAccent),
                         onPressed: () async {
                           _timer?.cancel();
+                          final state = Provider.of<AppState>(context,
+                              listen: false);
                           final confirmed = await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(
@@ -239,20 +241,18 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                             ),
                           );
                           if (confirmed == true && mounted) {
-                            final state = Provider.of<AppState>(context,
-                                listen: false);
                             final storyId = _current['id'] ?? '';
                             if (storyId.isNotEmpty) {
                               await state.deleteStory(storyId);
                             }
-                            if (mounted) {
+                            if (mounted && context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                       content: Text("Story deleted")));
                               // Remove from group and advance or pop
                               _stories.removeAt(_currentIndex);
                               if (_stories.isEmpty) {
-                                Navigator.pop(context);
+                                if (context.mounted) Navigator.pop(context);
                                 return;
                               }
                               if (_currentIndex >= _stories.length) {

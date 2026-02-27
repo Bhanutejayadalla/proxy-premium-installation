@@ -26,6 +26,7 @@ The app uses **Bluetooth Low Energy (BLE)** and **GPS** for proximity-based user
 - **Tappable Profile Stats** — Tap Followers, Following, or Connections count on any profile to view the full list of names
 - **Mode-Specific Social Graph** — Followers, following, and connections are separate for Pro and Social modes
 - **Manage Followers** — Tap Followers or Following in Settings to remove followers, unfollow users, or disconnect
+- **Remember Me Login** — Save email and password so credentials are pre-filled even after logout; password visibility toggle
 - **Remove & Reconnect** — Remove any connection and reconnect later from the Nearby or Profile screen
 - **Push Notifications** — Real-time Firestore listener triggers local push for likes, comments, messages, and connections (free, no Cloud Functions needed)
 - **Content Visibility** — Posts, stories, and reels respect the author's privacy setting (public / connections-only / private) and are filtered in real-time
@@ -384,4 +385,4 @@ This project is a prototype for educational/demonstration purposes.
 
 ---
 
-**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: July 2025**
+**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: February 2026**

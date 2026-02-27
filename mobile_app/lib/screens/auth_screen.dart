@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../app_state.dart';
 import '../constants.dart';
 
@@ -16,6 +17,41 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isRegister = false;
   bool _loading = false;
   String? _error;
+  bool _rememberMe = false;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('saved_email');
+    final savedPass = prefs.getString('saved_password');
+    final remember = prefs.getBool('remember_me') ?? false;
+    if (remember && savedEmail != null) {
+      setState(() {
+        _emailCtrl.text = savedEmail;
+        if (savedPass != null) _passCtrl.text = savedPass;
+        _rememberMe = true;
+      });
+    }
+  }
+
+  Future<void> _saveCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_rememberMe) {
+      await prefs.setString('saved_email', _emailCtrl.text.trim());
+      await prefs.setString('saved_password', _passCtrl.text.trim());
+      await prefs.setBool('remember_me', true);
+    } else {
+      await prefs.remove('saved_email');
+      await prefs.remove('saved_password');
+      await prefs.setBool('remember_me', false);
+    }
+  }
 
   Future<void> _submit() async {
     setState(() {
@@ -44,6 +80,11 @@ class _AuthScreenState extends State<AuthScreen> {
         _emailCtrl.text.trim(),
         _passCtrl.text.trim(),
       );
+    }
+
+    if (err == null) {
+      // Login/register succeeded — save credentials if remember me is on
+      await _saveCredentials();
     }
 
     if (mounted) {
@@ -120,23 +161,40 @@ class _AuthScreenState extends State<AuthScreen> {
               // Password
               TextField(
                 controller: _passCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
                   labelText: "Password",
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.lock),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
 
-              // Forgot password
+              // Remember Me + Forgot Password row
               if (!_isRegister)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _forgotPassword,
-                    child: const Text("Forgot Password?"),
-                  ),
+                Row(
+                  children: [
+                    Checkbox(
+                      value: _rememberMe,
+                      onChanged: (v) =>
+                          setState(() => _rememberMe = v ?? false),
+                    ),
+                    const Text("Remember Me"),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: _forgotPassword,
+                      child: const Text("Forgot Password?"),
+                    ),
+                  ],
                 ),
 
               const SizedBox(height: 16),

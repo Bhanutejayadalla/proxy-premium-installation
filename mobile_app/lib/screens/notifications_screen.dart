@@ -80,7 +80,7 @@ class NotificationsScreen extends StatelessWidget {
                         },
                       )
                     : null,
-                tileColor: item.read ? null : Colors.blue.withOpacity(0.05),
+                tileColor: item.read ? null : Colors.blue.withValues(alpha: 0.05),
                 onTap: () {
                   if (item.id.isNotEmpty && !item.read) {
                     state.firebase.markNotificationRead(item.id);

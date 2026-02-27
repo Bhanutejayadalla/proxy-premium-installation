@@ -178,8 +178,8 @@ class _NearbyScreenState extends State<NearbyScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: state.discoveryMode == DiscoveryMode.ble
-                ? Colors.blue.withOpacity(0.08)
-                : Colors.green.withOpacity(0.08),
+                ? Colors.blue.withValues(alpha: 0.08)
+                : Colors.green.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -344,7 +344,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.1),
+                                color: Colors.green.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Text("Connected",
@@ -358,7 +358,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Colors.orange.withOpacity(0.1),
+                                color: Colors.orange.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Text("Pending",
@@ -372,7 +372,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.1),
+                                color: Colors.blue.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Text("Accept?",
@@ -416,7 +416,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.blue.withOpacity(0.5), width: 2),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.5), width: 2),
       ),
     )
         .animate(onPlay: (c) => c.repeat())

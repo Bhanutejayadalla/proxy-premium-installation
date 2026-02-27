@@ -27,7 +27,7 @@ class JobCard extends StatelessWidget {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: Colors.indigo.withOpacity(0.1),
+                    color: Colors.indigo.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(LucideIcons.building2,
@@ -68,7 +68,7 @@ class JobCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.indigo.withOpacity(0.08),
+                            color: Colors.indigo.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(s,
@@ -98,9 +98,9 @@ class JobCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: hasApplied
-                  ? OutlinedButton(
+                  ? const OutlinedButton(
                       onPressed: null,
-                      child: const Text("Applied"),
+                      child: Text("Applied"),
                     )
                   : ElevatedButton(
                       onPressed: () {
@@ -129,9 +129,9 @@ class JobCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: c.withOpacity(0.1),
+        color: c.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: c.withOpacity(0.5)),
+        border: Border.all(color: c.withValues(alpha: 0.5)),
       ),
       child: Text(type,
           style:

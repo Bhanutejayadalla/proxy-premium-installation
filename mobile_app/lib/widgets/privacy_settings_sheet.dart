@@ -36,27 +36,29 @@ class PrivacySettingsSheet extends StatelessWidget {
               const Text("Profile Visibility",
                   style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              RadioListTile<String>(
-                title: const Text("Public"),
-                subtitle: const Text("Anyone can see your profile"),
-                value: 'public',
+              RadioGroup<String>(
                 groupValue: vis,
                 onChanged: (v) => state.updateProfile({'visibility': v}),
-              ),
-              RadioListTile<String>(
-                title: const Text("Connections Only"),
-                subtitle:
-                    const Text("Only connections see full profile"),
-                value: 'connections',
-                groupValue: vis,
-                onChanged: (v) => state.updateProfile({'visibility': v}),
-              ),
-              RadioListTile<String>(
-                title: const Text("Private"),
-                subtitle: const Text("Only you can see your details"),
-                value: 'private',
-                groupValue: vis,
-                onChanged: (v) => state.updateProfile({'visibility': v}),
+                child: const Column(
+                  children: [
+                    RadioListTile<String>(
+                      title: Text("Public"),
+                      subtitle: Text("Anyone can see your profile"),
+                      value: 'public',
+                    ),
+                    RadioListTile<String>(
+                      title: Text("Connections Only"),
+                      subtitle:
+                          Text("Only connections see full profile"),
+                      value: 'connections',
+                    ),
+                    RadioListTile<String>(
+                      title: Text("Private"),
+                      subtitle: Text("Only you can see your details"),
+                      value: 'private',
+                    ),
+                  ],
+                ),
               ),
 
               const Divider(),

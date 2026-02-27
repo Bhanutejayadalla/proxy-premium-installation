@@ -37,6 +37,7 @@
 - **Tappable Stats**: Tap Followers, Following, or Connections on any profile to see the full list of names
 - **Mode-Specific Social Graph**: Followers, following, and connections are separate for Pro and Social modes
 - **Manage Followers**: Tap Followers/Following in Settings to remove followers or unfollow users
+- **Remember Me Login**: Save email and password so credentials are pre-filled even after logout
 - **Delete Content**: Remove your own posts, reels, and stories
 - **Delete/Clear DM Chat**: Delete entire conversation or clear all messages from a DM
 - **Delete/Clear Group Chat**: Delete group or clear all messages; long-press to delete individual messages

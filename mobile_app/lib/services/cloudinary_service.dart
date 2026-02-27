@@ -70,7 +70,9 @@ class CloudinaryService {
           );
     } catch (e) {
       if (e is Exception &&
-          e.toString().contains('Upload timed out')) rethrow;
+          e.toString().contains('Upload timed out')) {
+        rethrow;
+      }
       throw Exception('Network error during upload: $e');
     }
 

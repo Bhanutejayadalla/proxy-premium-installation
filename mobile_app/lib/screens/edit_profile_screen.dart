@@ -74,9 +74,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _pickAvatar(bool isFormal) async {
+    final state = Provider.of<AppState>(context, listen: false);
     final x = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (x == null) return;
-    final state = Provider.of<AppState>(context, listen: false);
     await state.uploadAvatar(File(x.path), isFormal);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -217,14 +217,4 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
   }
-
-  Widget _statCol(String label, int count) {
-    return Column(
-      children: [
-        Text("$count",
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-      ],
-    );
-  }
 }

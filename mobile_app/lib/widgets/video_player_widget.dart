@@ -94,7 +94,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                 child: Container(
                   width: 60,
                   height: 60,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: Colors.black45,
                     shape: BoxShape.circle,
                   ),

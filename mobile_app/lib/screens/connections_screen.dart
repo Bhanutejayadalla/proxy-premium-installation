@@ -94,6 +94,9 @@ class ConnectionsScreen extends StatelessWidget {
                       icon: const Icon(Icons.more_vert, size: 20),
                       onSelected: (value) async {
                         if (value == 'remove') {
+                          final appState = Provider.of<AppState>(
+                              context,
+                              listen: false);
                           final confirmed = await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(
@@ -114,10 +117,7 @@ class ConnectionsScreen extends StatelessWidget {
                               ],
                             ),
                           );
-                          if (confirmed == true) {
-                            final appState = Provider.of<AppState>(
-                                context,
-                                listen: false);
+                          if (confirmed == true && context.mounted) {
                             await appState.removeConnection(otherUid);
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(

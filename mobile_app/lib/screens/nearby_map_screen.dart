@@ -52,7 +52,7 @@ class NearbyMapScreen extends StatelessWidget {
                           border: Border.all(color: Colors.white, width: 2),
                           boxShadow: [
                             BoxShadow(
-                                color: Colors.blue.withOpacity(0.4),
+                                color: Colors.blue.withValues(alpha: 0.4),
                                 blurRadius: 8,
                                 spreadRadius: 2)
                           ],
@@ -146,7 +146,7 @@ class NearbyMapScreen extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             border: Border.all(
-                color: Colors.blue.withOpacity(0.1), width: 1),
+                color: Colors.blue.withValues(alpha: 0.1), width: 1),
           ),
         ),
       );

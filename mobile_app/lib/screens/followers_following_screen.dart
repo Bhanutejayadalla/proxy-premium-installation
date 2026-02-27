@@ -24,9 +24,12 @@ class FollowersFollowingScreen extends StatelessWidget {
     final mode = state.currentMode;
     final isOwnProfile = user.uid == state.currentUser?.uid;
 
+    // Use live currentUser for own profile so data refreshes after actions
+    final liveUser = isOwnProfile ? (state.currentUser ?? user) : user;
+
     // Mode-specific data
-    final modeFollowers = user.getFollowersForMode(mode);
-    final modeFollowing = user.getFollowingForMode(mode);
+    final modeFollowers = liveUser.getFollowersForMode(mode);
+    final modeFollowing = liveUser.getFollowingForMode(mode);
     final modeLabel = state.isFormal ? 'Pro' : 'Social';
 
     return DefaultTabController(
@@ -34,7 +37,7 @@ class FollowersFollowingScreen extends StatelessWidget {
       initialIndex: initialTab,
       child: Scaffold(
         appBar: AppBar(
-          title: Text("${user.username} ($modeLabel)"),
+          title: Text("${liveUser.username} ($modeLabel)"),
           bottom: TabBar(
             tabs: [
               Tab(text: "Followers (${modeFollowers.length})"),

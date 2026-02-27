@@ -20,7 +20,7 @@ class SkillChip extends StatelessWidget {
               fontSize: 12,
               color: isFormal ? Colors.indigo : Colors.deepPurple)),
       backgroundColor:
-          (isFormal ? Colors.indigo : Colors.deepPurple).withOpacity(0.1),
+          (isFormal ? Colors.indigo : Colors.deepPurple).withValues(alpha: 0.1),
       deleteIcon: onDelete != null
           ? const Icon(Icons.close, size: 16)
           : null,

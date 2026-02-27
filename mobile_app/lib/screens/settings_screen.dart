@@ -187,10 +187,10 @@ class SettingsScreen extends StatelessWidget {
                   const Divider(),
 
                   const _SectionHeader("About"),
-                  ListTile(
-                    leading: const Icon(LucideIcons.info),
-                    title: const Text("App Version"),
-                    subtitle: const Text("Proxi 2.0.0"),
+                  const ListTile(
+                    leading: Icon(LucideIcons.info),
+                    title: Text("App Version"),
+                    subtitle: Text("Proxi 2.0.0"),
                   ),
                   const Divider(),
 
@@ -245,36 +245,32 @@ class SettingsScreen extends StatelessWidget {
               Consumer<AppState>(
                 builder: (context, state, _) {
                   final vis = state.currentUser?.visibility ?? 'public';
-                  return Column(
-                    children: [
-                      RadioListTile<String>(
-                        title: const Text("Public"),
-                        subtitle:
-                            const Text("Anyone can see your profile and posts"),
-                        value: 'public',
-                        groupValue: vis,
-                        onChanged: (v) =>
-                            state.updateProfile({'visibility': v}),
-                      ),
-                      RadioListTile<String>(
-                        title: const Text("Connections Only"),
-                        subtitle: const Text(
-                            "Only your connections can see your profile"),
-                        value: 'connections',
-                        groupValue: vis,
-                        onChanged: (v) =>
-                            state.updateProfile({'visibility': v}),
-                      ),
-                      RadioListTile<String>(
-                        title: const Text("Private"),
-                        subtitle: const Text(
-                            "Only you can see your profile details"),
-                        value: 'private',
-                        groupValue: vis,
-                        onChanged: (v) =>
-                            state.updateProfile({'visibility': v}),
-                      ),
-                    ],
+                  return RadioGroup<String>(
+                    groupValue: vis,
+                    onChanged: (v) =>
+                        state.updateProfile({'visibility': v}),
+                    child: const Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: Text("Public"),
+                          subtitle:
+                              Text("Anyone can see your profile and posts"),
+                          value: 'public',
+                        ),
+                        RadioListTile<String>(
+                          title: Text("Connections Only"),
+                          subtitle: Text(
+                              "Only your connections can see your profile"),
+                          value: 'connections',
+                        ),
+                        RadioListTile<String>(
+                          title: Text("Private"),
+                          subtitle: Text(
+                              "Only you can see your profile details"),
+                          value: 'private',
+                        ),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -365,9 +361,9 @@ class _StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
