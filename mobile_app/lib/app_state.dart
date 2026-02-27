@@ -215,9 +215,9 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       });
 
-      // Track pending sent requests
+      // Track pending sent requests (across ALL modes so status shows after toggling)
       _sentRequestsSub =
-          firebase.getSentRequestsStream(currentUser!.uid, mode: currentMode).listen((list) {
+          firebase.getSentRequestsStream(currentUser!.uid).listen((list) {
         _pendingSentUids = list
             .map((m) => m['to'] as String? ?? '')
             .where((s) => s.isNotEmpty)
@@ -225,9 +225,9 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       });
 
-      // Track pending received requests
+      // Track pending received requests (across ALL modes so requests from other mode are visible)
       _receivedRequestsSub =
-          firebase.getPendingRequestsStream(currentUser!.uid, mode: currentMode).listen((list) {
+          firebase.getPendingRequestsStream(currentUser!.uid).listen((list) {
         _pendingReceivedUids = list
             .map((m) => m['from'] as String? ?? '')
             .where((s) => s.isNotEmpty)
@@ -691,7 +691,8 @@ class AppState extends ChangeNotifier {
 
   Stream<List<Connection>> get pendingRequestsStream {
     if (currentUser == null) return const Stream.empty();
-    return firebase.getPendingRequestsStream(currentUser!.uid, mode: currentMode)
+    // Show pending requests from ALL modes so cross-mode requests are visible
+    return firebase.getPendingRequestsStream(currentUser!.uid)
         .map((list) => list.map((m) => Connection.fromMap(m)).toList());
   }
 

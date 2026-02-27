@@ -35,8 +35,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
                     && request.resource.data.author_id == request.auth.uid;
-      allow update: if isSignedIn()
-                    && resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // likes, comments from any user
       allow delete: if isSignedIn()
                     && resource.data.author_id == request.auth.uid;
     }
@@ -90,8 +89,9 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
                     && request.resource.data.author_id == request.auth.uid;
-      allow update, delete: if isSignedIn()
-                            && resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // applicants can apply
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
     }
 
     // ── Connections ───────────────────────────────────────────

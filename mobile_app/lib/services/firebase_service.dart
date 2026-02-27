@@ -644,22 +644,46 @@ class FirebaseService {
     });
   }
 
-  Future<String> getConnectionStatus(String uid1, String uid2) async {
+  /// Returns directional connection status:
+  /// 'accepted', 'pending_sent', 'pending_received', or 'none'.
+  Future<String> getConnectionStatus(String myUid, String otherUid) async {
+    // Check outgoing: I sent to them
     final q1 = await _db
         .collection('connections')
-        .where('from', isEqualTo: uid1)
-        .where('to', isEqualTo: uid2)
+        .where('from', isEqualTo: myUid)
+        .where('to', isEqualTo: otherUid)
         .get();
-    if (q1.docs.isNotEmpty) return q1.docs.first.data()['status'];
+    for (final doc in q1.docs) {
+      final status = doc.data()['status'] ?? '';
+      if (status == 'accepted') return 'accepted';
+      if (status == 'pending') return 'pending_sent';
+    }
 
+    // Check incoming: they sent to me
     final q2 = await _db
         .collection('connections')
-        .where('from', isEqualTo: uid2)
-        .where('to', isEqualTo: uid1)
+        .where('from', isEqualTo: otherUid)
+        .where('to', isEqualTo: myUid)
         .get();
-    if (q2.docs.isNotEmpty) return q2.docs.first.data()['status'];
+    for (final doc in q2.docs) {
+      final status = doc.data()['status'] ?? '';
+      if (status == 'accepted') return 'accepted';
+      if (status == 'pending') return 'pending_received';
+    }
 
     return 'none';
+  }
+
+  /// Find the incoming connection doc ID from [senderUid] to [receiverUid].
+  Future<String?> findIncomingConnectionId(String senderUid, String receiverUid) async {
+    final q = await _db
+        .collection('connections')
+        .where('from', isEqualTo: senderUid)
+        .where('to', isEqualTo: receiverUid)
+        .where('status', isEqualTo: 'pending')
+        .get();
+    if (q.docs.isNotEmpty) return q.docs.first.id;
+    return null;
   }
 
   // ─────────────────────────────────────────────

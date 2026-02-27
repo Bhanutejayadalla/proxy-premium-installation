@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../app_state.dart';
-import '../services/firebase_service.dart';
+import '../screens/connection_requests_screen.dart';
 
 /// Reusable connection button that shows state-aware UI:
 /// - "Connect" if no connection exists
 /// - "Pending" if request sent
 /// - "Connected" if accepted
-/// - "Accept / Decline" if incoming request
+/// - "Accept" if incoming request (navigates to Connection Requests screen)
 class ConnectionButton extends StatelessWidget {
   final String targetUid;
   final String mode;
@@ -21,71 +21,58 @@ class ConnectionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<AppState>(context, listen: false);
+    final state = Provider.of<AppState>(context);
     if (state.currentUser == null) return const SizedBox();
 
-    return FutureBuilder<String>(
-      future: FirebaseService()
-          .getConnectionStatus(state.currentUser!.uid, targetUid),
-      builder: (context, snap) {
-        final status = snap.data ?? 'none';
+    // Use cached connection status from AppState (real-time via streams)
+    final status = state.connectionStatusWith(targetUid);
 
-        switch (status) {
-          case 'accepted':
-            return OutlinedButton.icon(
-              icon: const Icon(LucideIcons.check, size: 16),
-              label: const Text("Connected"),
-              onPressed: null,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.green,
-                side: const BorderSide(color: Colors.green),
+    switch (status) {
+      case 'accepted':
+        return OutlinedButton.icon(
+          icon: const Icon(LucideIcons.check, size: 16),
+          label: const Text("Connected"),
+          onPressed: null,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.green,
+            side: const BorderSide(color: Colors.green),
+          ),
+        );
+      case 'pending_sent':
+        return OutlinedButton.icon(
+          icon: const Icon(LucideIcons.clock, size: 16),
+          label: const Text("Pending"),
+          onPressed: null,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.orange,
+            side: const BorderSide(color: Colors.orange),
+          ),
+        );
+      case 'pending_received':
+        return ElevatedButton.icon(
+          icon: const Icon(LucideIcons.userCheck, size: 16),
+          label: const Text("Accept"),
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+          onPressed: () {
+            // Navigate to Connection Requests screen to accept
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const ConnectionRequestsScreen(),
               ),
             );
-          case 'pending':
-            return OutlinedButton.icon(
-              icon: const Icon(LucideIcons.clock, size: 16),
-              label: const Text("Pending"),
-              onPressed: null,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.orange,
-                side: const BorderSide(color: Colors.orange),
-              ),
-            );
-          case 'incoming':
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ElevatedButton(
-                  onPressed: () async {
-                    // Find and accept the connection doc
-                    // This is simplified; in production, pass the connection ID
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Accepted!")));
-                  },
-                  child: const Text("Accept"),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Declined")));
-                  },
-                  child: const Text("Decline"),
-                ),
-              ],
-            );
-          default:
-            return ElevatedButton.icon(
-              icon: const Icon(LucideIcons.userPlus, size: 16),
-              label: const Text("Connect"),
-              onPressed: () {
-                state.sendConnectionRequest(targetUid);
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Connection request sent")));
-              },
-            );
-        }
-      },
-    );
+          },
+        );
+      default:
+        return ElevatedButton.icon(
+          icon: const Icon(LucideIcons.userPlus, size: 16),
+          label: const Text("Connect"),
+          onPressed: () {
+            state.sendConnectionRequest(targetUid);
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Connection request sent")));
+          },
+        );
+    }
   }
 }
