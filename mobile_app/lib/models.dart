@@ -14,6 +14,10 @@ class AppUser {
   final String bleUuid;
   final List<String> followers;
   final List<String> following;
+  final List<String> followersFormal;
+  final List<String> followersCasual;
+  final List<String> followingFormal;
+  final List<String> followingCasual;
 
   // Phase 2: Professional fields
   final String fullName;
@@ -49,6 +53,10 @@ class AppUser {
     this.bleUuid = '',
     this.followers = const [],
     this.following = const [],
+    this.followersFormal = const [],
+    this.followersCasual = const [],
+    this.followingFormal = const [],
+    this.followingCasual = const [],
     this.fullName = '',
     this.headline = '',
     this.skills = const [],
@@ -80,6 +88,10 @@ class AppUser {
       bleUuid: d['ble_uuid'] ?? '',
       followers: List<String>.from(d['followers'] ?? []),
       following: List<String>.from(d['following'] ?? []),
+      followersFormal: List<String>.from(d['followers_formal'] ?? []),
+      followersCasual: List<String>.from(d['followers_casual'] ?? []),
+      followingFormal: List<String>.from(d['following_formal'] ?? []),
+      followingCasual: List<String>.from(d['following_casual'] ?? []),
       fullName: d['full_name'] ?? '',
       headline: d['headline'] ?? '',
       skills: List<String>.from(d['skills'] ?? []),
@@ -115,6 +127,22 @@ class AppUser {
 
   String getAvatar(bool isFormal) => isFormal ? avatarFormal : avatarCasual;
 
+  /// Mode-specific followers (falls back to global for legacy users).
+  List<String> getFollowersForMode(String mode) {
+    final modeList = mode == 'formal' ? followersFormal : followersCasual;
+    if (modeList.isNotEmpty) return modeList;
+    if (followersFormal.isNotEmpty || followersCasual.isNotEmpty) return modeList;
+    return followers;
+  }
+
+  /// Mode-specific following (falls back to global for legacy users).
+  List<String> getFollowingForMode(String mode) {
+    final modeList = mode == 'formal' ? followingFormal : followingCasual;
+    if (modeList.isNotEmpty) return modeList;
+    if (followingFormal.isNotEmpty || followingCasual.isNotEmpty) return modeList;
+    return following;
+  }
+
   AppUser copyWith({
     String? uid,
     String? username,
@@ -125,6 +153,10 @@ class AppUser {
     String? bleUuid,
     List<String>? followers,
     List<String>? following,
+    List<String>? followersFormal,
+    List<String>? followersCasual,
+    List<String>? followingFormal,
+    List<String>? followingCasual,
     String? fullName,
     String? headline,
     List<String>? skills,
@@ -152,6 +184,10 @@ class AppUser {
       bleUuid: bleUuid ?? this.bleUuid,
       followers: followers ?? this.followers,
       following: following ?? this.following,
+      followersFormal: followersFormal ?? this.followersFormal,
+      followersCasual: followersCasual ?? this.followersCasual,
+      followingFormal: followingFormal ?? this.followingFormal,
+      followingCasual: followingCasual ?? this.followingCasual,
       fullName: fullName ?? this.fullName,
       headline: headline ?? this.headline,
       skills: skills ?? this.skills,

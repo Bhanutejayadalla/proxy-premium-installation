@@ -24,6 +24,8 @@ The app uses **Bluetooth Low Energy (BLE)** and **GPS** for proximity-based user
 - **Connection Requests** — Send, accept, or decline connections with smart status indicators (Connected / Pending / Accept); automatically allows re-sending after a declined request
 - **Mutual Followers** — When a connection is accepted, both users automatically follow each other; removing a connection unfollows both ways
 - **Tappable Profile Stats** — Tap Followers, Following, or Connections count on any profile to view the full list of names
+- **Mode-Specific Social Graph** — Followers, following, and connections are separate for Pro and Social modes
+- **Manage Followers** — Tap Followers or Following in Settings to remove followers, unfollow users, or disconnect
 - **Remove & Reconnect** — Remove any connection and reconnect later from the Nearby or Profile screen
 - **Push Notifications** — Real-time Firestore listener triggers local push for likes, comments, messages, and connections (free, no Cloud Functions needed)
 - **Content Visibility** — Posts, stories, and reels respect the author's privacy setting (public / connections-only / private) and are filtered in real-time
@@ -247,6 +249,7 @@ When mode is toggled via the FAB in `home_shell.dart`:
 4. New content is tagged with current mode
 5. Tab bar switches jobs ↔ reels
 6. **Chat conversations filter by mode** — Pro DMs/groups only show in Pro mode, Social only in Social
+7. **Followers, following, and connections are mode-specific** — separate social graphs per mode
 
 ### **Proximity Discovery**
 
@@ -285,8 +288,8 @@ Filtering happens client-side in `app_state.dart` listeners — content that the
 2. A `connections` document is created in Firestore with `status: 'pending'`.
 3. User B sees the request in **Settings → Connection Requests** and can **Accept** or **Decline**.
 4. If declined, the connection document is removed, and User A can re-send the request later.
-5. If accepted, **both users automatically follow each other** (mutual follow) and appear in each other's **Connections** list. Both users' follower/following counts update in real-time on their profiles.
-6. If a connection is **removed**, both users are **mutually unfollowed** and can reconnect later.
+5. If accepted, **both users automatically follow each other** (mutual follow) in the **connection's mode** and appear in each other's **Connections** list for that mode. Both users' follower/following counts update in real-time.
+6. If a connection is **removed**, both users are **mutually unfollowed** in that mode and can reconnect later.
 
 ### **Real-time Data**
 

@@ -41,6 +41,10 @@ class FirebaseService {
       ...data,
       'followers': [],
       'following': [],
+      'followers_formal': [],
+      'followers_casual': [],
+      'following_formal': [],
+      'following_casual': [],
       'skills': [],
       'experience': [],
       'education': [],
@@ -206,27 +210,33 @@ class FirebaseService {
     if (data['status'] == 'accepted') {
       final from = data['from'] as String;
       final to = data['to'] as String;
-      await unfollowUser(from, to);
-      await unfollowUser(to, from);
+      final mode = data['mode'] ?? 'formal';
+      await unfollowUser(from, to, mode: mode);
+      await unfollowUser(to, from, mode: mode);
     }
     await _db.collection('connections').doc(connectionId).delete();
   }
 
   /// Find the connection doc ID between two users (any direction, any status).
-  Future<String?> findConnectionId(String uid1, String uid2) async {
+  /// Optionally filter by [mode].
+  Future<String?> findConnectionId(String uid1, String uid2, {String? mode}) async {
     final q1 = await _db
         .collection('connections')
         .where('from', isEqualTo: uid1)
         .where('to', isEqualTo: uid2)
         .get();
-    if (q1.docs.isNotEmpty) return q1.docs.first.id;
+    for (final doc in q1.docs) {
+      if (mode == null || doc.data()['mode'] == mode) return doc.id;
+    }
 
     final q2 = await _db
         .collection('connections')
         .where('from', isEqualTo: uid2)
         .where('to', isEqualTo: uid1)
         .get();
-    if (q2.docs.isNotEmpty) return q2.docs.first.id;
+    for (final doc in q2.docs) {
+      if (mode == null || doc.data()['mode'] == mode) return doc.id;
+    }
     return null;
   }
 
@@ -395,21 +405,29 @@ class FirebaseService {
   //  FOLLOW / UNFOLLOW
   // ─────────────────────────────────────────────
 
-  Future<void> followUser(String myUid, String targetUid) async {
+  Future<void> followUser(String myUid, String targetUid, {String mode = 'formal'}) async {
+    final modeFollowing = 'following_$mode';
+    final modeFollowers = 'followers_$mode';
     await _db.collection('users').doc(myUid).update({
       'following': FieldValue.arrayUnion([targetUid]),
+      modeFollowing: FieldValue.arrayUnion([targetUid]),
     });
     await _db.collection('users').doc(targetUid).update({
       'followers': FieldValue.arrayUnion([myUid]),
+      modeFollowers: FieldValue.arrayUnion([myUid]),
     });
   }
 
-  Future<void> unfollowUser(String myUid, String targetUid) async {
+  Future<void> unfollowUser(String myUid, String targetUid, {String mode = 'formal'}) async {
+    final modeFollowing = 'following_$mode';
+    final modeFollowers = 'followers_$mode';
     await _db.collection('users').doc(myUid).update({
       'following': FieldValue.arrayRemove([targetUid]),
+      modeFollowing: FieldValue.arrayRemove([targetUid]),
     });
     await _db.collection('users').doc(targetUid).update({
       'followers': FieldValue.arrayRemove([myUid]),
+      modeFollowers: FieldValue.arrayRemove([myUid]),
     });
   }
 
@@ -507,26 +525,30 @@ class FirebaseService {
     required String mode,
     String message = '',
   }) async {
-    // Check existing: from → to
+    // Check existing: from → to (same mode only; null mode = any mode)
     final existing = await _db
         .collection('connections')
         .where('from', isEqualTo: fromUid)
         .where('to', isEqualTo: toUid)
         .get();
     for (final doc in existing.docs) {
+      final docMode = doc.data()['mode'];
+      if (docMode != null && docMode != mode) continue; // skip other modes
       final status = doc.data()['status'] ?? '';
-      if (status == 'pending' || status == 'accepted') return; // Already active
+      if (status == 'pending' || status == 'accepted') return; // Already active in this mode
       // Declined/blocked — remove so we can re-send
       await doc.reference.delete();
     }
 
-    // Check reverse: to → from
+    // Check reverse: to → from (same mode only)
     final reverse = await _db
         .collection('connections')
         .where('from', isEqualTo: toUid)
         .where('to', isEqualTo: fromUid)
         .get();
     for (final doc in reverse.docs) {
+      final docMode = doc.data()['mode'];
+      if (docMode != null && docMode != mode) continue;
       final status = doc.data()['status'] ?? '';
       if (status == 'pending' || status == 'accepted') return;
       await doc.reference.delete();
@@ -563,42 +585,63 @@ class FirebaseService {
 
     if (status == 'accepted') {
       final data = doc.data()!;
-      // Mutual follow: both users follow each other
-      await followUser(data['from'], data['to']);
-      await followUser(data['to'], data['from']);
+      final mode = data['mode'] ?? 'formal';
+      // Mutual follow: both users follow each other in the connection's mode
+      await followUser(data['from'], data['to'], mode: mode);
+      await followUser(data['to'], data['from'], mode: mode);
+      // Notify the requester that their connection was accepted
+      final acceptor = await getUser(data['to']);
+      await createNotification(
+        userId: data['from'],
+        fromUid: data['to'],
+        fromUsername: acceptor?.username ?? '',
+        type: 'connection_accepted',
+        text: 'accepted your connection request',
+      );
     }
   }
 
-  Stream<List<Map<String, dynamic>>> getConnectionsStream(String uid) {
+  Stream<List<Map<String, dynamic>>> getConnectionsStream(String uid, {String? mode}) {
     return _db
         .collection('connections')
         .where('status', isEqualTo: 'accepted')
         .snapshots()
         .map((snap) => snap.docs
-            .where((d) =>
-                d.data()['from'] == uid || d.data()['to'] == uid)
+            .where((d) {
+                final data = d.data();
+                final isUser = data['from'] == uid || data['to'] == uid;
+                if (!isUser) return false;
+                if (mode != null) return data['mode'] == mode;
+                return true;
+            })
             .map((d) => {'id': d.id, ...d.data()})
             .toList());
   }
 
-  Stream<List<Map<String, dynamic>>> getSentRequestsStream(String uid) {
+  Stream<List<Map<String, dynamic>>> getSentRequestsStream(String uid, {String? mode}) {
     return _db
         .collection('connections')
         .where('from', isEqualTo: uid)
         .where('status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) {
+      final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      if (mode != null) return docs.where((d) => d['mode'] == mode).toList();
+      return docs;
+    });
   }
 
-  Stream<List<Map<String, dynamic>>> getPendingRequestsStream(String uid) {
+  Stream<List<Map<String, dynamic>>> getPendingRequestsStream(String uid, {String? mode}) {
     return _db
         .collection('connections')
         .where('to', isEqualTo: uid)
         .where('status', isEqualTo: 'pending')
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) {
+      final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      if (mode != null) return docs.where((d) => d['mode'] == mode).toList();
+      return docs;
+    });
   }
 
   Future<String> getConnectionStatus(String uid1, String uid2) async {

@@ -35,6 +35,8 @@
 - **Connection System**: Send/accept/remove connections with reconnect support
 - **Followers/Following Real-Time Sync**: Profile counters update instantly via Firestore listener
 - **Tappable Stats**: Tap Followers, Following, or Connections on any profile to see the full list of names
+- **Mode-Specific Social Graph**: Followers, following, and connections are separate for Pro and Social modes
+- **Manage Followers**: Tap Followers/Following in Settings to remove followers or unfollow users
 - **Delete Content**: Remove your own posts, reels, and stories
 - **Delete/Clear DM Chat**: Delete entire conversation or clear all messages from a DM
 - **Delete/Clear Group Chat**: Delete group or clear all messages; long-press to delete individual messages
@@ -520,6 +522,9 @@ proxi/
 - [x] Followers/following real-time sync
 - [x] Tappable followers/following/connections lists
 - [x] Mode-specific chat (Pro and Social separate)
+- [x] Mode-specific followers, following, and connections
+- [x] Manage followers (add/remove from Settings)
+- [x] Accept connection notification to requester
 - [x] Delete own posts, reels, and stories
 
 ### 🔨 In Progress

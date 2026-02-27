@@ -71,9 +71,9 @@ class ProfileScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _tappableStatCol(context, "Followers", user.followers.length, user, 0),
+                      _tappableStatCol(context, "Followers", user.getFollowersForMode(state.currentMode).length, user, 0),
                       const SizedBox(width: 30),
-                      _tappableStatCol(context, "Following", user.following.length, user, 1),
+                      _tappableStatCol(context, "Following", user.getFollowingForMode(state.currentMode).length, user, 1),
                       const SizedBox(width: 30),
                       _tappableStatCol(context, "Connections", state.connectedUids.length, user, 2),
                     ],

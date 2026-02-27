@@ -206,7 +206,7 @@ class AppState extends ChangeNotifier {
       });
 
       _connectionsSub =
-          firebase.getConnectionsStream(currentUser!.uid).listen((list) {
+          firebase.getConnectionsStream(currentUser!.uid, mode: currentMode).listen((list) {
         _connectedUids = list.map((m) {
           final from = m['from'] as String? ?? '';
           final to = m['to'] as String? ?? '';
@@ -217,7 +217,7 @@ class AppState extends ChangeNotifier {
 
       // Track pending sent requests
       _sentRequestsSub =
-          firebase.getSentRequestsStream(currentUser!.uid).listen((list) {
+          firebase.getSentRequestsStream(currentUser!.uid, mode: currentMode).listen((list) {
         _pendingSentUids = list
             .map((m) => m['to'] as String? ?? '')
             .where((s) => s.isNotEmpty)
@@ -227,7 +227,7 @@ class AppState extends ChangeNotifier {
 
       // Track pending received requests
       _receivedRequestsSub =
-          firebase.getPendingRequestsStream(currentUser!.uid).listen((list) {
+          firebase.getPendingRequestsStream(currentUser!.uid, mode: currentMode).listen((list) {
         _pendingReceivedUids = list
             .map((m) => m['from'] as String? ?? '')
             .where((s) => s.isNotEmpty)
@@ -390,11 +390,37 @@ class AppState extends ChangeNotifier {
   /// Remove a connection (accepted, pending, etc.) and allow reconnect later.
   Future<void> removeConnection(String otherUid) async {
     if (currentUser == null) return;
-    final connId = await firebase.findConnectionId(currentUser!.uid, otherUid);
+    final connId = await firebase.findConnectionId(currentUser!.uid, otherUid, mode: currentMode);
     if (connId != null) {
       await firebase.deleteConnection(connId);
     }
-    // Refresh currentUser to pick up updated followers/following arrays
+    currentUser = await firebase.getUser(currentUser!.uid);
+    notifyListeners();
+  }
+
+  /// Remove a user from current user's followers in current mode.
+  Future<void> removeFollower(String followerUid) async {
+    if (currentUser == null) return;
+    final connId = await firebase.findConnectionId(currentUser!.uid, followerUid, mode: currentMode);
+    if (connId != null) {
+      await firebase.deleteConnection(connId);
+    } else {
+      // No connection found — remove from follower lists directly
+      await firebase.unfollowUser(followerUid, currentUser!.uid, mode: currentMode);
+    }
+    currentUser = await firebase.getUser(currentUser!.uid);
+    notifyListeners();
+  }
+
+  /// Unfollow a user in current mode.
+  Future<void> unfollowUserAction(String targetUid) async {
+    if (currentUser == null) return;
+    final connId = await firebase.findConnectionId(currentUser!.uid, targetUid, mode: currentMode);
+    if (connId != null) {
+      await firebase.deleteConnection(connId);
+    } else {
+      await firebase.unfollowUser(currentUser!.uid, targetUid, mode: currentMode);
+    }
     currentUser = await firebase.getUser(currentUser!.uid);
     notifyListeners();
   }
@@ -659,13 +685,13 @@ class AppState extends ChangeNotifier {
 
   Stream<List<Connection>> get connectionsStream {
     if (currentUser == null) return const Stream.empty();
-    return firebase.getConnectionsStream(currentUser!.uid)
+    return firebase.getConnectionsStream(currentUser!.uid, mode: currentMode)
         .map((list) => list.map((m) => Connection.fromMap(m)).toList());
   }
 
   Stream<List<Connection>> get pendingRequestsStream {
     if (currentUser == null) return const Stream.empty();
-    return firebase.getPendingRequestsStream(currentUser!.uid)
+    return firebase.getPendingRequestsStream(currentUser!.uid, mode: currentMode)
         .map((list) => list.map((m) => Connection.fromMap(m)).toList());
   }
 

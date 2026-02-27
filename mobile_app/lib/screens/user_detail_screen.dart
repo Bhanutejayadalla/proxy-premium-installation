@@ -73,9 +73,14 @@ class UserDetailScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _tappableStat(context, "Followers", user.followers.length, user, 0),
-                _tappableStat(context, "Following", user.following.length, user, 1),
-                _tappableStat(context, "Connections", 0, user, 2), // count shown from cached data
+                _tappableStat(context, "Followers", user.getFollowersForMode(state.currentMode).length, user, 0),
+                _tappableStat(context, "Following", user.getFollowingForMode(state.currentMode).length, user, 1),
+                StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: FirebaseService().getConnectionsStream(user.uid, mode: state.currentMode),
+                  builder: (ctx, snap) {
+                    return _tappableStat(context, "Connections", snap.data?.length ?? 0, user, 2);
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 20),

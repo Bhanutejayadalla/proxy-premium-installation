@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import 'edit_profile_screen.dart';
 import 'connection_requests_screen.dart';
+import 'followers_following_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -78,27 +79,49 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const Divider(),
 
-                  // Social Stats — real-time counts
-                  const _SectionHeader("Social Stats"),
+                  // Social Stats — real-time counts (mode-specific)
+                  _SectionHeader("Social Stats (${state.isFormal ? 'Pro' : 'Social'})"),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Row(
                       children: [
                         Expanded(
-                          child: _StatCard(
-                            icon: LucideIcons.users,
-                            label: "Followers",
-                            count: user?.followers.length ?? 0,
-                            color: Colors.blue,
+                          child: GestureDetector(
+                            onTap: user == null ? null : () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => FollowersFollowingScreen(
+                                  user: user,
+                                  initialTab: 0,
+                                ),
+                              ),
+                            ),
+                            child: _StatCard(
+                              icon: LucideIcons.users,
+                              label: "Followers",
+                              count: user?.getFollowersForMode(state.currentMode).length ?? 0,
+                              color: Colors.blue,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: _StatCard(
-                            icon: LucideIcons.userPlus,
-                            label: "Following",
-                            count: user?.following.length ?? 0,
-                            color: Colors.green,
+                          child: GestureDetector(
+                            onTap: user == null ? null : () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => FollowersFollowingScreen(
+                                  user: user,
+                                  initialTab: 1,
+                                ),
+                              ),
+                            ),
+                            child: _StatCard(
+                              icon: LucideIcons.userPlus,
+                              label: "Following",
+                              count: user?.getFollowingForMode(state.currentMode).length ?? 0,
+                              color: Colors.green,
+                            ),
                           ),
                         ),
                       ],
