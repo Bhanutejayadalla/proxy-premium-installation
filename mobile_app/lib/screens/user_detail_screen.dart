@@ -6,6 +6,7 @@ import '../models.dart';
 import '../services/firebase_service.dart';
 import 'chat_detail_screen.dart';
 import 'connection_requests_screen.dart';
+import 'followers_following_screen.dart';
 
 class UserDetailScreen extends StatelessWidget {
   final AppUser user;
@@ -72,8 +73,9 @@ class UserDetailScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _stat("Followers", user.followers.length),
-                _stat("Following", user.following.length),
+                _tappableStat(context, "Followers", user.followers.length, user, 0),
+                _tappableStat(context, "Following", user.following.length, user, 1),
+                _tappableStat(context, "Connections", 0, user, 2), // count shown from cached data
               ],
             ),
             const SizedBox(height: 20),
@@ -309,6 +311,28 @@ class UserDetailScreen extends StatelessWidget {
       child: Text(text,
           style: TextStyle(
               color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+    );
+  }
+
+  Widget _tappableStat(BuildContext context, String label, int count, AppUser user, int tabIndex) {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => FollowersFollowingScreen(
+            user: user,
+            initialTab: tabIndex,
+          ),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text("$count",
+              style: const TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(color: Colors.grey[600])),
+        ],
+      ),
     );
   }
 

@@ -529,7 +529,7 @@ class AppState extends ChangeNotifier {
 
   String getChatId(String otherUid) {
     if (currentUser == null) return '';
-    return firebase.getChatId(currentUser!.uid, otherUid);
+    return firebase.getChatId(currentUser!.uid, otherUid, mode: currentMode);
   }
 
   Stream<List<Map<String, dynamic>>> getChatMessages(String chatId) {
@@ -538,7 +538,7 @@ class AppState extends ChangeNotifier {
 
   Stream<List<Map<String, dynamic>>> get conversationsStream {
     if (currentUser == null) return const Stream.empty();
-    return firebase.getConversationsStream(currentUser!.uid);
+    return firebase.getConversationsStream(currentUser!.uid, mode: currentMode);
   }
 
   Future<void> sendMessage({
@@ -557,6 +557,7 @@ class AppState extends ChangeNotifier {
       text: text,
       fileUrl: fileUrl,
       fileType: fileType,
+      mode: currentMode,
     );
   }
 
@@ -585,12 +586,13 @@ class AppState extends ChangeNotifier {
       name: name,
       creatorUid: currentUser!.uid,
       memberUids: memberUids,
+      mode: currentMode,
     );
   }
 
   Stream<List<Map<String, dynamic>>> get groupChatsStream {
     if (currentUser == null) return const Stream.empty();
-    return firebase.getGroupChatsStream(currentUser!.uid);
+    return firebase.getGroupChatsStream(currentUser!.uid, mode: currentMode);
   }
 
   Stream<List<Map<String, dynamic>>> getGroupMessages(String groupId) {

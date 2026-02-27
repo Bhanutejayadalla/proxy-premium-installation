@@ -18,7 +18,7 @@ class ChatListScreen extends StatelessWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text("Messages"),
+          title: Text("Messages (${state.isFormal ? 'Pro' : 'Social'})"),
           actions: [
             IconButton(
               icon: const Icon(LucideIcons.users),

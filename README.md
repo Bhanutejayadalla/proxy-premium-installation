@@ -34,9 +34,11 @@
 - **Notifications**: Push alerts for likes, comments, connections
 - **Connection System**: Send/accept/remove connections with reconnect support
 - **Followers/Following Real-Time Sync**: Profile counters update instantly via Firestore listener
+- **Tappable Stats**: Tap Followers, Following, or Connections on any profile to see the full list of names
 - **Delete Content**: Remove your own posts, reels, and stories
 - **Delete/Clear DM Chat**: Delete entire conversation or clear all messages from a DM
 - **Delete/Clear Group Chat**: Delete group or clear all messages; long-press to delete individual messages
+- **Mode-Specific Chat**: DM and group conversations are separated by mode — Pro chats stay in Pro, Social chats stay in Social
 - **Story Replies**: Tap to reply → opens DM
 - **Push Notifications (Free)**: Real-time Firestore listener triggers local push notifications for likes, comments, messages, and connection requests while the app is running
 
@@ -516,6 +518,8 @@ proxi/
 - [x] Cloud Functions code ready (optional, requires Blaze plan for deploy)
 - [x] Connection request system
 - [x] Followers/following real-time sync
+- [x] Tappable followers/following/connections lists
+- [x] Mode-specific chat (Pro and Social separate)
 - [x] Delete own posts, reels, and stories
 
 ### 🔨 In Progress

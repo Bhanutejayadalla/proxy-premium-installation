@@ -269,9 +269,9 @@ class FirebaseService {
   //  CHAT OPERATIONS
   // ─────────────────────────────────────────────
 
-  String getChatId(String uid1, String uid2) {
+  String getChatId(String uid1, String uid2, {String mode = 'formal'}) {
     final sorted = [uid1, uid2]..sort();
-    return '${sorted[0]}_${sorted[1]}';
+    return '${sorted[0]}_${sorted[1]}_$mode';
   }
 
   Stream<List<Map<String, dynamic>>> getChatStream(String chatId) {
@@ -293,11 +293,13 @@ class FirebaseService {
     String? text,
     String? fileUrl,
     String? fileType,
+    String mode = 'formal',
   }) async {
     await _db.collection('chats').doc(chatId).set({
       'participants': [senderUid, receiverUid],
-      'last_message': text ?? (fileType != null ? 'Sent a $fileType' : ''),
+      'last_message': text ?? (fileType != null ? 'Sent a \$fileType' : ''),
       'last_timestamp': FieldValue.serverTimestamp(),
+      'mode': mode,
     }, SetOptions(merge: true));
 
     await _db
@@ -324,14 +326,19 @@ class FirebaseService {
     }
   }
 
-  Stream<List<Map<String, dynamic>>> getConversationsStream(String uid) {
+  Stream<List<Map<String, dynamic>>> getConversationsStream(String uid, {String? mode}) {
     return _db
         .collection('chats')
         .where('participants', arrayContains: uid)
         .orderBy('last_timestamp', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) {
+      final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      if (mode != null) {
+        return docs.where((c) => c['mode'] == mode).toList();
+      }
+      return docs;
+    });
   }
 
   // ─────────────────────────────────────────────
@@ -636,6 +643,7 @@ class FirebaseService {
     required String name,
     required String creatorUid,
     required List<String> memberUids,
+    String mode = 'formal',
   }) async {
     final all = <String>{creatorUid, ...memberUids}.toList();
     final doc = await _db.collection('group_chats').add({
@@ -645,19 +653,25 @@ class FirebaseService {
       'last_message': '',
       'last_timestamp': FieldValue.serverTimestamp(),
       'created_at': FieldValue.serverTimestamp(),
+      'mode': mode,
     });
     return doc.id;
   }
 
   /// Stream of group chats this user is a member of.
-  Stream<List<Map<String, dynamic>>> getGroupChatsStream(String uid) {
+  Stream<List<Map<String, dynamic>>> getGroupChatsStream(String uid, {String? mode}) {
     return _db
         .collection('group_chats')
         .where('members', arrayContains: uid)
         .orderBy('last_timestamp', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) {
+      final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      if (mode != null) {
+        return docs.where((g) => g['mode'] == mode).toList();
+      }
+      return docs;
+    });
   }
 
   /// Send a message in a group chat.

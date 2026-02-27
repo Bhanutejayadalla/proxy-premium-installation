@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import 'edit_profile_screen.dart';
 import 'settings_screen.dart';
+import 'followers_following_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -66,13 +67,15 @@ class ProfileScreen extends StatelessWidget {
 
                   const SizedBox(height: 12),
 
-                  // Followers / Following
+                  // Followers / Following / Connections
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _statCol("Followers", user.followers.length),
-                      const SizedBox(width: 40),
-                      _statCol("Following", user.following.length),
+                      _tappableStatCol(context, "Followers", user.followers.length, user, 0),
+                      const SizedBox(width: 30),
+                      _tappableStatCol(context, "Following", user.following.length, user, 1),
+                      const SizedBox(width: 30),
+                      _tappableStatCol(context, "Connections", state.connectedUids.length, user, 2),
                     ],
                   ),
 
@@ -191,6 +194,27 @@ class ProfileScreen extends StatelessWidget {
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _tappableStatCol(BuildContext context, String label, int count, AppUser user, int tabIndex) {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => FollowersFollowingScreen(
+            user: user,
+            initialTab: tabIndex,
+          ),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text("$count",
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        ],
+      ),
     );
   }
 
