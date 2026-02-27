@@ -48,10 +48,96 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final myUid = Provider.of<AppState>(context).currentUser?.uid ?? '';
+    final state = Provider.of<AppState>(context);
+    final myUid = state.currentUser?.uid ?? '';
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.targetUser)),
+      appBar: AppBar(
+        title: Text(widget.targetUser),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) async {
+              if (value == 'clear') {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text("Clear Chat"),
+                    content: const Text(
+                        "Delete all messages? The conversation will remain."),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Cancel")),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text("Clear",
+                              style: TextStyle(color: Colors.red))),
+                    ],
+                  ),
+                );
+                if (confirmed == true && context.mounted) {
+                  await state.clearChat(_chatId);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Chat cleared")));
+                  }
+                }
+              } else if (value == 'delete') {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text("Delete Conversation"),
+                    content: const Text(
+                        "Delete this entire conversation? This cannot be undone."),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Cancel")),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text("Delete",
+                              style: TextStyle(color: Colors.red))),
+                    ],
+                  ),
+                );
+                if (confirmed == true && context.mounted) {
+                  await state.deleteChat(_chatId);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text("Conversation deleted")));
+                  }
+                }
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'clear',
+                child: Row(
+                  children: [
+                    Icon(Icons.cleaning_services, size: 20),
+                    SizedBox(width: 8),
+                    Text("Clear Messages"),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_forever, color: Colors.red, size: 20),
+                    SizedBox(width: 8),
+                    Text("Delete Conversation",
+                        style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Column(
         children: [
           // Messages (real-time from Firestore)
@@ -67,38 +153,74 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   itemBuilder: (ctx, i) {
                     final m = msgs[i];
                     final isMe = m['sender_uid'] == myUid;
-                    return Align(
-                      alignment:
-                          isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        padding: const EdgeInsets.all(10),
-                        constraints: const BoxConstraints(maxWidth: 250),
-                        decoration: BoxDecoration(
-                          color: isMe ? Colors.blue : Colors.grey[300],
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (m['file_url'] != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 5),
-                                child: CachedNetworkImage(
-                                  imageUrl: m['file_url'],
-                                  placeholder: (c, u) =>
-                                      const CircularProgressIndicator(),
-                                  errorWidget: (c, u, e) =>
-                                      const Icon(Icons.insert_drive_file),
+                    return GestureDetector(
+                      onLongPress: isMe
+                          ? () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text("Delete Message"),
+                                  content: const Text(
+                                      "Delete this message?"),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text("Cancel")),
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text("Delete",
+                                            style: TextStyle(
+                                                color: Colors.red))),
+                                  ],
                                 ),
-                              ),
-                            if (m['text'] != null &&
-                                m['text'].toString().isNotEmpty)
-                              Text(m['text'],
-                                  style: TextStyle(
-                                      color:
-                                          isMe ? Colors.white : Colors.black)),
-                          ],
+                              );
+                              if (confirmed == true && context.mounted) {
+                                await state.deleteChatMessage(
+                                    _chatId, m['id']);
+                              }
+                            }
+                          : null,
+                      child: Align(
+                        alignment: isMe
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(10),
+                          constraints:
+                              const BoxConstraints(maxWidth: 250),
+                          decoration: BoxDecoration(
+                            color: isMe ? Colors.blue : Colors.grey[300],
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              if (m['file_url'] != null)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.only(bottom: 5),
+                                  child: CachedNetworkImage(
+                                    imageUrl: m['file_url'],
+                                    placeholder: (c, u) =>
+                                        const CircularProgressIndicator(),
+                                    errorWidget: (c, u, e) =>
+                                        const Icon(
+                                            Icons.insert_drive_file),
+                                  ),
+                                ),
+                              if (m['text'] != null &&
+                                  m['text'].toString().isNotEmpty)
+                                Text(m['text'],
+                                    style: TextStyle(
+                                        color: isMe
+                                            ? Colors.white
+                                            : Colors.black)),
+                            ],
+                          ),
                         ),
                       ),
                     );

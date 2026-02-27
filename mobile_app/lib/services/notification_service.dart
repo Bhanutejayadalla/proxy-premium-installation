@@ -61,6 +61,28 @@ class NotificationService {
     });
   }
 
+  /// Show a local notification (used by in-app Firestore listener).
+  void showLocal({
+    required int id,
+    required String title,
+    required String body,
+  }) {
+    _local.show(
+      id,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'proxi_main',
+          'Proxi Notifications',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+    );
+  }
+
   /// Get the FCM device token (to store in Firestore).
   Future<String?> getToken() async {
     return await _fcm.getToken();

@@ -179,7 +179,7 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                 ),
               ),
 
-              // USER INFO + CLOSE
+              // USER INFO + CLOSE + DELETE
               Positioned(
                 top: 24,
                 left: 15,
@@ -208,6 +208,63 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                               color: Colors.white,
                               fontWeight: FontWeight.bold)),
                     ),
+                    // Delete button — only show for own stories
+                    if (Provider.of<AppState>(context, listen: false)
+                                .currentUser
+                                ?.uid ==
+                            _current['author_id'])
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.redAccent),
+                        onPressed: () async {
+                          _timer?.cancel();
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text("Delete Story"),
+                              content: const Text(
+                                  "Are you sure you want to delete this story?"),
+                              actions: [
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, false),
+                                    child: const Text("Cancel")),
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(ctx, true),
+                                    child: const Text("Delete",
+                                        style:
+                                            TextStyle(color: Colors.red))),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true && mounted) {
+                            final state = Provider.of<AppState>(context,
+                                listen: false);
+                            final storyId = _current['id'] ?? '';
+                            if (storyId.isNotEmpty) {
+                              await state.deleteStory(storyId);
+                            }
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text("Story deleted")));
+                              // Remove from group and advance or pop
+                              _stories.removeAt(_currentIndex);
+                              if (_stories.isEmpty) {
+                                Navigator.pop(context);
+                                return;
+                              }
+                              if (_currentIndex >= _stories.length) {
+                                _currentIndex = _stories.length - 1;
+                              }
+                              _startTimer();
+                            }
+                          } else {
+                            _startTimer(); // Resume timer if cancelled
+                          }
+                        },
+                      ),
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.white),
                       onPressed: () => Navigator.pop(context),

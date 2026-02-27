@@ -172,6 +172,44 @@ class _NearbyScreenState extends State<NearbyScreen> {
           ),
         ),
 
+        // Radius info banner
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: state.discoveryMode == DiscoveryMode.ble
+                ? Colors.blue.withOpacity(0.08)
+                : Colors.green.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                state.discoveryMode == DiscoveryMode.ble
+                    ? Icons.bluetooth
+                    : Icons.gps_fixed,
+                size: 14,
+                color: state.discoveryMode == DiscoveryMode.ble
+                    ? Colors.blue
+                    : Colors.green,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                state.discoveryMode == DiscoveryMode.ble
+                    ? "BLE range: ~30-50 meters (RSSI filtered)"
+                    : "GPS radius: 10 km",
+                style: TextStyle(
+                  fontSize: 11,
+                  color: state.discoveryMode == DiscoveryMode.ble
+                      ? Colors.blue[700]
+                      : Colors.green[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+
         // SCANNER AREA
         GestureDetector(
           onTap: _status == _ScanStatus.scanning ? null : _handleScan,

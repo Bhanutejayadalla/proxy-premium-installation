@@ -51,19 +51,19 @@ service cloud.firestore {
 
     // ── Chats & Messages ──────────────────────────────────────
     match /chats/{chatId} {
-      allow read, create, update: if isSignedIn();
+      allow read, create, update, delete: if isSignedIn();
 
       match /messages/{messageId} {
-        allow read, create: if isSignedIn();
+        allow read, create, delete: if isSignedIn();
       }
     }
 
     // ── Group Chats & Messages ────────────────────────────────
     match /group_chats/{groupId} {
-      allow read, create, update: if isSignedIn();
+      allow read, create, update, delete: if isSignedIn();
 
       match /messages/{messageId} {
-        allow read, create: if isSignedIn();
+        allow read, create, delete: if isSignedIn();
       }
     }
 

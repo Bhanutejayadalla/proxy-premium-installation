@@ -17,9 +17,10 @@
 - **One-Tap Toggle**: Switch seamlessly between Professional and Social personas
 
 ### Proximity Discovery
-- **BLE (Bluetooth)**: Find people within 10-15 meters (indoor/crowded spaces)
-- **GPS Mode**: Discover users within customizable radius (outdoor events)
+- **BLE (Bluetooth)**: Find people within ~30-50 meters using RSSI signal-strength filtering (threshold -80 dBm)
+- **GPS Mode**: Discover users within a 10 km radius (outdoor events, campus-wide)
 - **Animated Radar UI**: Visual representation of nearby users
+- **Radius Info Banner**: On-screen indicator showing active discovery range for each mode
 
 ### Content Creation
 - **Posts**: Text, images, mixed media (mode-specific)
@@ -32,8 +33,12 @@
 - **Group Chat**: Create group conversations with 2+ connections
 - **Notifications**: Push alerts for likes, comments, connections
 - **Connection System**: Send/accept/remove connections with reconnect support
+- **Followers/Following Real-Time Sync**: Profile counters update instantly via Firestore listener
 - **Delete Content**: Remove your own posts, reels, and stories
+- **Delete/Clear DM Chat**: Delete entire conversation or clear all messages from a DM
+- **Delete/Clear Group Chat**: Delete group or clear all messages; long-press to delete individual messages
 - **Story Replies**: Tap to reply → opens DM
+- **Push Notifications (Free)**: Real-time Firestore listener triggers local push notifications for likes, comments, messages, and connection requests while the app is running
 
 ---
 
@@ -403,7 +408,8 @@ These features make Firestore / Firebase / Cloudinary calls and will fail or sho
 **Backend (Firebase)**
 - **Firestore**: NoSQL database (users, posts, stories, chats, group_chats, notifications)
 - **Authentication**: Email/password (ready for OAuth expansion)
-- **Cloud Messaging**: Push notifications (FCM tokens in user docs)
+- **Cloud Messaging**: Push notifications via real-time Firestore listener + local notifications (free, no Cloud Functions needed)
+- **Cloud Functions** (optional): Server-side triggers for push when app is closed (requires Blaze plan)
 - **Storage Rules**: Security rules in `firestore.rules`
 
 **Media Storage (Cloudinary)**
@@ -477,6 +483,10 @@ proxi/
 ├── backend/                    # Legacy Python backend (deprecated)
 │   └── main.py
 │
+├── functions/                  # Firebase Cloud Functions (Node.js)
+│   ├── index.js                # Push notification triggers
+│   └── package.json            # Node.js dependencies
+│
 ├── firebase.json               # Firebase project configuration
 ├── firestore.rules             # Firestore security rules
 ├── firestore.indexes.json      # Firestore query indexes
@@ -494,20 +504,23 @@ proxi/
 - [x] Dual-mode toggle (Formal/Casual)
 - [x] Firebase authentication
 - [x] Firestore database integration
-- [x] BLE proximity scanning
-- [x] GPS-based discovery
+- [x] BLE proximity scanning with RSSI filtering (~30-50 m range)
+- [x] GPS-based discovery (10 km radius)
 - [x] Post creation (text + images)
 - [x] Stories with 24h expiry
 - [x] Reels (vertical video feed)
 - [x] Job board (Formal mode)
-- [x] Real-time chat
-- [x] Push notifications structure
+- [x] Real-time chat (DM + Group)
+- [x] Delete/clear DM and group chat
+- [x] Push notifications (real-time Firestore listener + local push)
+- [x] Cloud Functions code ready (optional, requires Blaze plan for deploy)
 - [x] Connection request system
+- [x] Followers/following real-time sync
+- [x] Delete own posts, reels, and stories
 
 ### 🔨 In Progress
-- [ ] Cloud Functions for automated tasks
+- [ ] Cloud Functions deployment (optional, requires Firebase Blaze plan)
 - [ ] Story auto-cleanup (24h cron job)
-- [ ] Advanced notification triggers
 - [ ] Feed algorithm (personalized sorting)
 
 ### 🔮 Future Plans
@@ -574,6 +587,14 @@ firebase deploy --only firestore:rules
 
 # Deploy Firestore indexes
 firebase deploy --only firestore:indexes
+
+# (Optional) Deploy Cloud Functions — requires Blaze plan
+# Push notifications already work for free via in-app Firestore listener.
+# Cloud Functions are only needed for push when app is completely closed.
+cd functions
+npm install
+cd ..
+firebase deploy --only functions
 ```
 
 ---

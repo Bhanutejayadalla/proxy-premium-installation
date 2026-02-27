@@ -580,7 +580,7 @@ git push
 | **Soon** | Build release APK | `flutter build apk --release` → share APK with friends |
 | **Soon** | Add app icon and splash screen | Replace files in `android/app/src/main/res/mipmap-*` |
 | **Later** | Publish to Play Store | Requires Google Play Developer account ($25 one-time fee) |
-| **Later** | Add Cloud Functions | For auto push notifications & story cleanup |
+| **Later** | Add Cloud Functions | For push notifications when app is closed (requires Blaze plan — optional, in-app push already works free) |
 | **Later** | Add iOS support | Need a Mac with Xcode |
 
 ---

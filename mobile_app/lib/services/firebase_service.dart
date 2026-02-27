@@ -18,6 +18,14 @@ class FirebaseService {
     return AppUser.fromFirestore(doc);
   }
 
+  /// Real-time stream of the user's profile document.
+  Stream<AppUser?> getUserStream(String uid) {
+    return _db.collection('users').doc(uid).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return AppUser.fromFirestore(doc);
+    });
+  }
+
   Future<AppUser?> getUserByUsername(String username) async {
     final query = await _db
         .collection('users')
@@ -199,6 +207,7 @@ class FirebaseService {
       final from = data['from'] as String;
       final to = data['to'] as String;
       await unfollowUser(from, to);
+      await unfollowUser(to, from);
     }
     await _db.collection('connections').doc(connectionId).delete();
   }
@@ -547,7 +556,9 @@ class FirebaseService {
 
     if (status == 'accepted') {
       final data = doc.data()!;
+      // Mutual follow: both users follow each other
       await followUser(data['from'], data['to']);
+      await followUser(data['to'], data['from']);
     }
   }
 
@@ -701,5 +712,98 @@ class FirebaseService {
     await _db.collection('group_chats').doc(groupId).update({
       'members': FieldValue.arrayRemove([uid]),
     });
+  }
+
+  // ─────────────────────────────────────────────
+  //  CHAT DELETE / CLEAR OPERATIONS
+  // ─────────────────────────────────────────────
+
+  /// Delete a single message from a DM chat.
+  Future<void> deleteChatMessage(String chatId, String messageId) async {
+    await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .delete();
+  }
+
+  /// Clear all messages in a DM chat (keeps the chat doc).
+  Future<void> clearChat(String chatId) async {
+    final msgs = await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .get();
+    final batch = _db.batch();
+    for (final doc in msgs.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+    // Reset last message
+    await _db.collection('chats').doc(chatId).update({
+      'last_message': '',
+      'last_timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Delete a DM chat entirely (messages + chat doc).
+  Future<void> deleteChat(String chatId) async {
+    // Delete all messages first
+    final msgs = await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .get();
+    final batch = _db.batch();
+    for (final doc in msgs.docs) {
+      batch.delete(doc.reference);
+    }
+    batch.delete(_db.collection('chats').doc(chatId));
+    await batch.commit();
+  }
+
+  /// Delete a single message from a group chat.
+  Future<void> deleteGroupChatMessage(String groupId, String messageId) async {
+    await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .doc(messageId)
+        .delete();
+  }
+
+  /// Clear all messages in a group chat (keeps the group doc).
+  Future<void> clearGroupChat(String groupId) async {
+    final msgs = await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .get();
+    final batch = _db.batch();
+    for (final doc in msgs.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+    // Reset last message
+    await _db.collection('group_chats').doc(groupId).update({
+      'last_message': '',
+      'last_timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Delete a group chat entirely (messages + group doc).
+  Future<void> deleteGroupChat(String groupId) async {
+    final msgs = await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .get();
+    final batch = _db.batch();
+    for (final doc in msgs.docs) {
+      batch.delete(doc.reference);
+    }
+    batch.delete(_db.collection('group_chats').doc(groupId));
+    await batch.commit();
   }
 }

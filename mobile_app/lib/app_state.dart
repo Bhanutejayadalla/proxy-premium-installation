@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'services/auth_service.dart';
 import 'services/firebase_service.dart';
 import 'services/location_service.dart';
@@ -33,6 +34,10 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _connectionsSub;
   StreamSubscription? _sentRequestsSub;
   StreamSubscription? _receivedRequestsSub;
+  StreamSubscription? _profileSub; // Real-time profile listener
+  StreamSubscription? _notifSub; // Real-time push notification listener
+  final NotificationService _notifService = NotificationService();
+  bool _notifInitialSnapshotSkipped = false; // Skip first snapshot to avoid old notifs
   List<String> _connectedUids = []; // UIDs of accepted connections
   List<String> _pendingSentUids = []; // UIDs where current user sent pending request
   List<String> _pendingReceivedUids = []; // UIDs who sent current user a pending request
@@ -105,6 +110,12 @@ class AppState extends ChangeNotifier {
       if (token != null) {
         await firebase.updateProfile(currentUser!.uid, {'fcm_token': token});
       }
+      // Listen for token refreshes and update Firestore
+      NotificationService().onTokenRefresh().listen((newToken) {
+        if (currentUser != null) {
+          firebase.updateProfile(currentUser!.uid, {'fcm_token': newToken});
+        }
+      });
     } catch (_) {}
   }
 
@@ -141,6 +152,59 @@ class AppState extends ChangeNotifier {
 
     // Track accepted connections — needed for visibility filtering
     if (currentUser != null) {
+      // Live profile listener — keeps followers/following/avatar in sync
+      _profileSub = firebase.getUserStream(currentUser!.uid).listen((user) {
+        if (user != null) {
+          currentUser = user;
+          notifyListeners();
+        }
+      });
+
+      // Live notification listener — shows local push for new notifications
+      _notifInitialSnapshotSkipped = false;
+      _notifSub = firebase
+          .getNotificationsStream(currentUser!.uid)
+          .listen((notifications) {
+        if (!_notifInitialSnapshotSkipped) {
+          // Skip the first snapshot (existing notifications already in Firestore)
+          _notifInitialSnapshotSkipped = true;
+          return;
+        }
+        // Show local push for unread notifications
+        for (final n in notifications) {
+          if (!n.read) {
+            String title = 'Proxi';
+            String body = n.text;
+            switch (n.type) {
+              case 'like':
+                title = '❤️ ${n.fromUser} liked your post';
+                break;
+              case 'comment':
+                title = '💬 ${n.fromUser} commented';
+                break;
+              case 'connection_request':
+                title = '🤝 Connection Request';
+                body = '${n.fromUser} wants to connect';
+                break;
+              case 'connection_accepted':
+                title = '✅ Connection Accepted';
+                body = '${n.fromUser} accepted your request';
+                break;
+              case 'message':
+                title = '📩 ${n.fromUser}';
+                break;
+              default:
+                title = 'Proxi';
+            }
+            _notifService.showLocal(
+              id: n.id.hashCode,
+              title: title,
+              body: body,
+            );
+          }
+        }
+      });
+
       _connectionsSub =
           firebase.getConnectionsStream(currentUser!.uid).listen((list) {
         _connectedUids = list.map((m) {
@@ -242,6 +306,8 @@ class AppState extends ChangeNotifier {
     _connectionsSub?.cancel();
     _sentRequestsSub?.cancel();
     _receivedRequestsSub?.cancel();
+    _profileSub?.cancel();
+    _notifSub?.cancel();
   }
 
   /// Manual refresh (pull-to-refresh) — re-subscribe.
@@ -328,6 +394,9 @@ class AppState extends ChangeNotifier {
     if (connId != null) {
       await firebase.deleteConnection(connId);
     }
+    // Refresh currentUser to pick up updated followers/following arrays
+    currentUser = await firebase.getUser(currentUser!.uid);
+    notifyListeners();
   }
 
   // ─────────────────────────────────────────────
@@ -336,12 +405,67 @@ class AppState extends ChangeNotifier {
 
   void scanNearby() async {
     if (discoveryMode == DiscoveryMode.ble) {
-      await ble.init();
-      await Future.delayed(const Duration(seconds: 2));
-      final allUsers = await firebase.getNearbyUsers();
-      nearbyUsers = allUsers
-          .where((u) => u.uid != currentUser?.uid)
-          .toList();
+      final ready = await ble.init();
+      if (!ready) {
+        // BLE not available — fall back to close-range GPS (0.05 km ≈ 50m)
+        final pos = await location.getCurrentPosition();
+        if (pos != null && currentUser != null) {
+          await firebase.updateLocation(
+              currentUser!.uid, pos.latitude, pos.longitude);
+          final gpsUsers = await firebase.getNearbyByGps(
+              pos.latitude, pos.longitude, 0.05);
+          nearbyUsers =
+              gpsUsers.where((u) => u.uid != currentUser?.uid).toList();
+        }
+        notifyListeners();
+        return;
+      }
+
+      // Start real BLE scan and collect discovered device IDs
+      final scanStream = ble.scan();
+      final Set<String> discoveredDeviceIds = {};
+
+      // Listen for 8 seconds (matches BLE scan timeout)
+      await scanStream.first.timeout(
+        const Duration(seconds: 9),
+        onTimeout: () => <ScanResult>[],
+      ).then((results) {
+        for (final r in results) {
+          discoveredDeviceIds.add(r.device.remoteId.str.toUpperCase());
+          // Also collect advertised service UUIDs
+          for (final uuid in r.advertisementData.serviceUuids) {
+            discoveredDeviceIds.add(uuid.str.toUpperCase());
+          }
+        }
+      }).catchError((_) {});
+
+      // Also update our own location for other BLE users to find us
+      final pos = await location.getCurrentPosition();
+      if (pos != null && currentUser != null) {
+        await firebase.updateLocation(
+            currentUser!.uid, pos.latitude, pos.longitude);
+      }
+
+      // Strategy: use nearby GPS within BLE range (~0.015 km = 15m)
+      // as BLE UUID matching requires all users to advertise, which
+      // is not practical. We use GPS proximity as BLE-range proxy.
+      if (pos != null) {
+        final bleRangeUsers = await firebase.getNearbyByGps(
+            pos.latitude, pos.longitude, 0.015); // 15 meters
+        nearbyUsers =
+            bleRangeUsers.where((u) => u.uid != currentUser?.uid).toList();
+      } else {
+        // No GPS — try to match BLE UUIDs from Firestore
+        final allUsers = await firebase.getNearbyUsers();
+        nearbyUsers = allUsers.where((u) {
+          if (u.uid == currentUser?.uid) return false;
+          if (u.bleUuid.isNotEmpty &&
+              discoveredDeviceIds.contains(u.bleUuid.toUpperCase())) {
+            return true;
+          }
+          return false;
+        }).toList();
+      }
     } else {
       // GPS discovery
       final pos = await location.getCurrentPosition();
@@ -436,6 +560,21 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  /// Delete a single message in a DM chat.
+  Future<void> deleteChatMessage(String chatId, String messageId) async {
+    await firebase.deleteChatMessage(chatId, messageId);
+  }
+
+  /// Clear all messages in a DM chat.
+  Future<void> clearChat(String chatId) async {
+    await firebase.clearChat(chatId);
+  }
+
+  /// Delete a DM chat entirely (messages + chat doc).
+  Future<void> deleteChat(String chatId) async {
+    await firebase.deleteChat(chatId);
+  }
+
   // ─────────────────────────────────────────────
   //  GROUP CHAT
   // ─────────────────────────────────────────────
@@ -475,6 +614,21 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  /// Delete a single message in a group chat.
+  Future<void> deleteGroupChatMessage(String groupId, String messageId) async {
+    await firebase.deleteGroupChatMessage(groupId, messageId);
+  }
+
+  /// Clear all messages in a group chat.
+  Future<void> clearGroupChat(String groupId) async {
+    await firebase.clearGroupChat(groupId);
+  }
+
+  /// Delete a group chat entirely.
+  Future<void> deleteGroupChat(String groupId) async {
+    await firebase.deleteGroupChat(groupId);
+  }
+
   // ─────────────────────────────────────────────
   //  CONNECTIONS (Phase 6)
   // ─────────────────────────────────────────────
@@ -487,10 +641,18 @@ class AppState extends ChangeNotifier {
       fromUsername: currentUser!.username,
       mode: currentMode,
     );
+    // Refresh currentUser to pick up updated followers/following arrays
+    currentUser = await firebase.getUser(currentUser!.uid);
+    notifyListeners();
   }
 
   Future<void> respondToConnection(String connectionId, String status) async {
     await firebase.respondToConnection(connectionId, status);
+    // Refresh currentUser to pick up updated followers/following arrays
+    if (currentUser != null) {
+      currentUser = await firebase.getUser(currentUser!.uid);
+      notifyListeners();
+    }
   }
 
   Stream<List<Connection>> get connectionsStream {

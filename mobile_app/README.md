@@ -13,15 +13,16 @@ The app uses **Bluetooth Low Energy (BLE)** and **GPS** for proximity-based user
 
 - **Dual Persona System** — Instantly switch between formal and casual modes without logging out
 - **Mode-Specific Content** — Separate feeds, avatars, and UI themes for each mode
-- **Proximity Discovery** — BLE radar + GPS distance scanning with animated UI
-- **Real-time Chat** — Firestore-powered 1:1 messaging with media sharing
-- **Group Chat** — Create group conversations with your connections (select 2+ members)
+- **Proximity Discovery** — BLE proximity (≈10–15 m range) + GPS distance scanning (10 km radius) with animated UI
+- **Real-time Chat** — Firestore-powered 1:1 messaging with media sharing, delete individual messages, clear or delete entire conversations
+- **Group Chat** — Create group conversations with your connections (select 2+ members), clear or delete group chats
 - **Stories & Posts** — Create ephemeral stories (24h auto-expiry) or permanent posts with media
-- **Delete Content** — Delete your own posts, reels, and stories from anywhere in the app
+- **Delete Content** — Delete your own posts, reels, and stories from anywhere in the app (including from the story viewer)
 - **Video Reels** — Record and browse short-form vertical video content (casual mode)
 - **Professional Profiles** — Full name, headline, skills, experience, education (formal mode)
 - **Job Board** — Post and apply for jobs in formal mode
 - **Connection Requests** — Send, accept, or decline connections with smart status indicators (Connected / Pending / Accept); automatically allows re-sending after a declined request
+- **Mutual Followers** — When a connection is accepted, both users automatically follow each other; removing a connection unfollows both ways
 - **Remove & Reconnect** — Remove any connection and reconnect later from the Nearby or Profile screen
 - **Push Notifications** — FCM-powered notifications for likes, comments, messages, and connections
 - **Content Visibility** — Posts, stories, and reels respect the author's privacy setting (public / connections-only / private) and are filtered in real-time
@@ -248,10 +249,10 @@ When mode is toggled via the FAB in `home_shell.dart`:
 
 Two discovery modes available on the **Nearby** tab:
 
-- **BLE (Bluetooth)**  
-  `ble_service.dart` triggers a Bluetooth Low Energy scan to detect nearby physical devices. After the scan, `firebase_service.dart` fetches all Firestore users marked `discoverable: true` in the current mode. The BLE scan acts as a proximity gate — confirming that real devices are in range — while Firestore supplies the profile data.
+- **BLE (Bluetooth) — Range: ~10–15 meters**  
+  `ble_service.dart` triggers a Bluetooth Low Energy scan to detect nearby physical devices. The app uses the BLE scan as a proximity gate — confirming that real devices are in physical range — and cross-references GPS coordinates within a 15-meter radius to identify discoverable Proxi users. If BLE hardware is unavailable, the app falls back to close-range GPS (~50 m). If GPS is also unavailable, the app attempts to match BLE device UUIDs with the `ble_uuid` field stored in each user's Firestore profile.
 
-- **GPS**  
+- **GPS — Range: 10 km radius**  
   `location_service.dart` obtains the device's coordinates via the `geolocator` package and writes them to the user's Firestore document. `firebase_service.dart` then queries all users in the same mode and calculates **haversine distance** to each one, returning only those within a **10 km** radius. Location updates run every 30 seconds while the Nearby tab is active.
 
 Both modes display each discovered user as a card showing their avatar, name, headline, and a **live connection status indicator**:
@@ -281,7 +282,8 @@ Filtering happens client-side in `app_state.dart` listeners — content that the
 2. A `connections` document is created in Firestore with `status: 'pending'`.
 3. User B sees the request in **Settings → Connection Requests** and can **Accept** or **Decline**.
 4. If declined, the connection document is removed, and User A can re-send the request later.
-5. If accepted, both users appear in each other's **Connections** list and can see each other's `connections`-visibility content.
+5. If accepted, **both users automatically follow each other** (mutual follow) and appear in each other's **Connections** list. Both users' follower/following counts update in real-time on their profiles.
+6. If a connection is **removed**, both users are **mutually unfollowed** and can reconnect later.
 
 ### **Real-time Data**
 
@@ -333,8 +335,8 @@ Firebase Spark plan (free) is generous for development and small apps:
 | Issue | Solution |
 |-------|---------|
 | `Firebase.initializeApp()` fails | Run `flutterfire configure` to generate config files |
-| BLE not working | Use a physical device, grant Bluetooth + Location permissions. On Android 12+, `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` permissions are required. |
-| GPS shows no users | Ensure location permission granted; other users must have location enabled and be within 10 km. Check that both users are in the **same mode** (Formal or Casual). |
+| BLE not working | Use a physical device, grant Bluetooth + Location permissions. On Android 12+, `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` permissions are required. BLE range is approximately **10–15 meters** — users must be physically nearby. If BLE hardware is unavailable, the app falls back to close-range GPS. |
+| GPS shows no users | Ensure location permission granted; other users must have location enabled and be within **10 km**. Check that both users are in the **same mode** (Formal or Casual). The app stores location on each scan, so both users must have scanned recently. |
 | Connection request not received | Verify both users are online and the recipient checks **Settings → Connection Requests**. If a previous request was declined, the sender can re-send. |
 | Content not visible | The author's privacy setting may be set to *connections* or *private*. Accept a connection request or ask the author to change their visibility in Settings. |
 | Images not loading | Verify Firebase Storage rules allow authenticated reads |
@@ -376,4 +378,4 @@ This project is a prototype for educational/demonstration purposes.
 
 ---
 
-**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: February 2026**
+**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: July 2025**

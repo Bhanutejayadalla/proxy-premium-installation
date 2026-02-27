@@ -47,7 +47,8 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final myUid = Provider.of<AppState>(context).currentUser?.uid ?? '';
+    final state = Provider.of<AppState>(context);
+    final myUid = state.currentUser?.uid ?? '';
 
     return Scaffold(
       appBar: AppBar(
@@ -60,6 +61,90 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                 style: TextStyle(fontSize: 11, color: Colors.grey)),
           ],
         ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) async {
+              if (value == 'clear') {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text("Clear Group Chat"),
+                    content: const Text(
+                        "Delete all messages? The group will remain."),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Cancel")),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text("Clear",
+                              style: TextStyle(color: Colors.red))),
+                    ],
+                  ),
+                );
+                if (confirmed == true && context.mounted) {
+                  await state.clearGroupChat(widget.groupId);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text("Group chat cleared")));
+                  }
+                }
+              } else if (value == 'delete') {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text("Delete Group"),
+                    content: const Text(
+                        "Delete this group chat entirely? This cannot be undone."),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Cancel")),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text("Delete",
+                              style: TextStyle(color: Colors.red))),
+                    ],
+                  ),
+                );
+                if (confirmed == true && context.mounted) {
+                  await state.deleteGroupChat(widget.groupId);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text("Group chat deleted")));
+                  }
+                }
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'clear',
+                child: Row(
+                  children: [
+                    Icon(Icons.cleaning_services, size: 20),
+                    SizedBox(width: 8),
+                    Text("Clear Messages"),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_forever, color: Colors.red, size: 20),
+                    SizedBox(width: 8),
+                    Text("Delete Group",
+                        style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -84,49 +169,79 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                     final m = msgs[i];
                     final isMe = m['sender_uid'] == myUid;
                     final sender = m['sender_username'] ?? '';
-                    return Align(
-                      alignment:
-                          isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        padding: const EdgeInsets.all(10),
-                        constraints: const BoxConstraints(maxWidth: 280),
-                        decoration: BoxDecoration(
-                          color: isMe ? Colors.blue : Colors.grey[300],
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (!isMe)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Text(sender,
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: isMe
-                                            ? Colors.white70
-                                            : Colors.black54)),
-                              ),
-                            if (m['file_url'] != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 5),
-                                child: CachedNetworkImage(
-                                  imageUrl: m['file_url'],
-                                  placeholder: (c, u) =>
-                                      const CircularProgressIndicator(),
-                                  errorWidget: (c, u, e) =>
-                                      const Icon(Icons.insert_drive_file),
+                    return GestureDetector(
+                      onLongPress: isMe
+                          ? () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text("Delete Message"),
+                                  content: const Text(
+                                      "Delete this message?"),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text("Cancel")),
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text("Delete",
+                                            style: TextStyle(
+                                                color: Colors.red))),
+                                  ],
                                 ),
-                              ),
-                            if (m['text'] != null &&
-                                m['text'].toString().isNotEmpty)
-                              Text(m['text'],
-                                  style: TextStyle(
-                                      color:
-                                          isMe ? Colors.white : Colors.black)),
-                          ],
+                              );
+                              if (confirmed == true && context.mounted) {
+                                await state.deleteGroupChatMessage(
+                                    widget.groupId, m['id']);
+                              }
+                            }
+                          : null,
+                      child: Align(
+                        alignment:
+                            isMe ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(10),
+                          constraints: const BoxConstraints(maxWidth: 280),
+                          decoration: BoxDecoration(
+                            color: isMe ? Colors.blue : Colors.grey[300],
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (!isMe)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(sender,
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: isMe
+                                              ? Colors.white70
+                                              : Colors.black54)),
+                                ),
+                              if (m['file_url'] != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 5),
+                                  child: CachedNetworkImage(
+                                    imageUrl: m['file_url'],
+                                    placeholder: (c, u) =>
+                                        const CircularProgressIndicator(),
+                                    errorWidget: (c, u, e) =>
+                                        const Icon(Icons.insert_drive_file),
+                                  ),
+                                ),
+                              if (m['text'] != null &&
+                                  m['text'].toString().isNotEmpty)
+                                Text(m['text'],
+                                    style: TextStyle(
+                                        color:
+                                            isMe ? Colors.white : Colors.black)),
+                            ],
+                          ),
                         ),
                       ),
                     );

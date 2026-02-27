@@ -108,3 +108,6 @@ backend/.env
 # Windows
 Thumbs.db
 desktop.ini
+
+# Separate deploy repos
+vercel-deploy/
