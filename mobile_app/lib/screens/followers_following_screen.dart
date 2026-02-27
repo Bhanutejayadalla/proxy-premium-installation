@@ -223,11 +223,22 @@ class _UserListTab extends StatelessWidget {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await action();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("$title completed")),
-        );
+      try {
+        await action();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("$title completed")),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Failed to $title: ${e.toString()}"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }

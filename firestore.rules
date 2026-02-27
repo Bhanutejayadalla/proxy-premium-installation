@@ -11,11 +11,22 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Check that only follower/following array fields are being modified
+    function onlyFollowFields() {
+      let allowed = ['followers', 'following',
+                     'followers_formal', 'followers_casual',
+                     'following_formal', 'following_casual'].toSet();
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+    }
+
     // ── Users ─────────────────────────────────────────────────
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
+      // Owner can update anything; other signed-in users can only
+      // modify follower / following arrays (for follow/unfollow).
+      allow update: if isOwner(userId)
+                    || (isSignedIn() && onlyFollowFields());
       allow delete: if isOwner(userId);
     }
 
