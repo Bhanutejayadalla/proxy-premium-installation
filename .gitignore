@@ -89,11 +89,9 @@ mobile_app/android/captures/
 *.jks
 *.keystore
 
-# Firebase/sensitive files - excluded to protect API keys
-**/google-services.json
-**/GoogleService-Info.plist
-**/firebase_options.dart
-mobile_app/firebase.json
+# Firebase/sensitive files (Keep these commented to allow team collaboration)
+# google-services.json
+# firebase_options.dart
 
 # IDE files
 .vscode/
