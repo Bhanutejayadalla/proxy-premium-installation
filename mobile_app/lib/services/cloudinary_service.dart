@@ -11,8 +11,11 @@ import 'package:path/path.dart' as p;
 ///   3. Fill in [cloudName] and [uploadPreset] below.
 class CloudinaryService {
   // ── FILL THESE IN from your Cloudinary Dashboard / Settings ──
-  static const String cloudName = 'dqzzhefov';       // e.g. 'dxyz1234abc'
-  static const String uploadPreset = 'proxy-social';  // e.g. 'proxi_unsigned'
+  // 1. Sign up free at https://cloudinary.com
+  // 2. Go to Dashboard → copy your Cloud Name
+  // 3. Go to Settings → Upload → Add unsigned upload preset → copy preset name
+  static const String cloudName = 'YOUR_CLOUD_NAME';         // e.g. 'dxyz1234abc'
+  static const String uploadPreset = 'YOUR_UPLOAD_PRESET';   // e.g. 'proxi_unsigned'
 
   static const int maxVideoSizeMB = 100; // Cloudinary free-tier limit
 
