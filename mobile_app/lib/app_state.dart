@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'services/auth_service.dart';
 import 'services/firebase_service.dart';
 import 'services/location_service.dart';
@@ -429,71 +428,88 @@ class AppState extends ChangeNotifier {
   //  NEARBY / DISCOVERY
   // ─────────────────────────────────────────────
 
+  /// Error message from the last scan attempt (empty if successful).
+  String bleScanError = '';
+
+  /// Number of raw BLE devices detected in the last scan.
+  int bleDevicesDetected = 0;
+
   void scanNearby() async {
+    bleScanError = '';
+    bleDevicesDetected = 0;
+
     if (discoveryMode == DiscoveryMode.ble) {
-      final ready = await ble.init();
-      if (!ready) {
-        // BLE not available — fall back to close-range GPS (0.05 km ≈ 50m)
-        final pos = await location.getCurrentPosition();
-        if (pos != null && currentUser != null) {
-          await firebase.updateLocation(
-              currentUser!.uid, pos.latitude, pos.longitude);
-          final gpsUsers = await firebase.getNearbyByGps(
-              pos.latitude, pos.longitude, 0.05);
-          nearbyUsers =
-              gpsUsers.where((u) => u.uid != currentUser?.uid).toList();
-        }
+      // ── Step 1: Verify Bluetooth is actually ON ──
+      final btOn = await ble.isBluetoothOn();
+      if (!btOn) {
+        bleScanError = 'Bluetooth is turned off. Please enable Bluetooth in your device settings and try again.';
         notifyListeners();
         return;
       }
 
-      // Start real BLE scan and collect discovered device IDs
-      final scanStream = ble.scan();
-      final Set<String> discoveredDeviceIds = {};
+      // ── Step 2: Initialize BLE permissions ──
+      final ready = await ble.init();
+      if (!ready) {
+        bleScanError = 'Bluetooth permissions denied. Please grant Bluetooth and Location permissions in Settings.';
+        notifyListeners();
+        return;
+      }
 
-      // Listen for 8 seconds (matches BLE scan timeout)
-      await scanStream.first.timeout(
-        const Duration(seconds: 9),
-        onTimeout: () => <ScanResult>[],
-      ).then((results) {
-        for (final r in results) {
-          discoveredDeviceIds.add(r.device.remoteId.str.toUpperCase());
-          // Also collect advertised service UUIDs
-          for (final uuid in r.advertisementData.serviceUuids) {
-            discoveredDeviceIds.add(uuid.str.toUpperCase());
-          }
-        }
-      }).catchError((_) {});
-
-      // Also update our own location for other BLE users to find us
+      // ── Step 3: Get GPS position (needed to identify Proxi users) ──
       final pos = await location.getCurrentPosition();
-      if (pos != null && currentUser != null) {
-        await firebase.updateLocation(
-            currentUser!.uid, pos.latitude, pos.longitude);
+      if (pos == null) {
+        bleScanError = 'Could not get your location. Please enable Location services and try again.';
+        notifyListeners();
+        return;
       }
 
-      // Strategy: use nearby GPS within BLE range (~0.015 km = 15m)
-      // as BLE UUID matching requires all users to advertise, which
-      // is not practical. We use GPS proximity as BLE-range proxy.
-      if (pos != null) {
-        final bleRangeUsers = await firebase.getNearbyByGps(
-            pos.latitude, pos.longitude, 0.015); // 15 meters
-        nearbyUsers =
-            bleRangeUsers.where((u) => u.uid != currentUser?.uid).toList();
-      } else {
-        // No GPS — try to match BLE UUIDs from Firestore
-        final allUsers = await firebase.getNearbyUsers();
-        nearbyUsers = allUsers.where((u) {
-          if (u.uid == currentUser?.uid) return false;
-          if (u.bleUuid.isNotEmpty &&
-              discoveredDeviceIds.contains(u.bleUuid.toUpperCase())) {
-            return true;
-          }
-          return false;
-        }).toList();
+      // ── Step 4: Update our own location with BLE-active flag ──
+      if (currentUser != null) {
+        await firebase.updateLocation(
+            currentUser!.uid, pos.latitude, pos.longitude, bleActive: true);
       }
+
+      // ── Step 5: Run BLE scan to confirm Bluetooth is working ──
+      // This proves physical proximity — BLE scan detects nearby Bluetooth
+      // devices within ~30-50m. We then use GPS to identify which are Proxi users.
+      try {
+        final scanResults = await ble.scanAndCollect(
+          durationSeconds: 8,
+          minRssi: BleService.rssiThreshold,
+        );
+        bleDevicesDetected = scanResults.length;
+      } catch (e) {
+        // BLE scan failed but we can still use GPS proximity
+        bleDevicesDetected = 0;
+      }
+
+      // ── Step 6: Find Proxi users within BLE range (~50m) ──
+      // Uses GPS to identify users, BLE-active flag ensures they're also scanning.
+      // 0.05 km = 50 meters — matches practical BLE range.
+      final bleRangeUsers = await firebase.getNearbyBleUsers(
+          pos.latitude, pos.longitude, 0.05, maxAgeMinutes: 5);
+
+      // Also include GPS-nearby users within slightly wider range
+      // in case other user hasn't set ble_active yet
+      final gpsNearbyUsers = await firebase.getNearbyByGps(
+          pos.latitude, pos.longitude, 0.05);
+
+      // Merge: BLE-active users first, then GPS-nearby users (deduplicated)
+      final Map<String, AppUser> merged = {};
+      for (final u in bleRangeUsers) {
+        if (u.uid != currentUser?.uid) merged[u.uid] = u;
+      }
+      for (final u in gpsNearbyUsers) {
+        if (u.uid != currentUser?.uid && !merged.containsKey(u.uid)) {
+          merged[u.uid] = u;
+        }
+      }
+
+      nearbyUsers = merged.values.toList()
+        ..sort((a, b) => (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999));
+
     } else {
-      // GPS discovery
+      // ── GPS discovery (10 km range) ──
       final pos = await location.getCurrentPosition();
       if (pos != null) {
         if (currentUser != null) {

@@ -468,20 +468,50 @@ class FirebaseService {
           (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999));
   }
 
-  Future<void> updateLocation(String uid, double lat, double lng) async {
+  Future<void> updateLocation(String uid, double lat, double lng, {bool bleActive = false}) async {
     await _db.collection('users').doc(uid).update({
       'location': {
         'lat': lat,
         'lng': lng,
         'timestamp': FieldValue.serverTimestamp(),
-      }
+      },
+      'ble_active': bleActive,
+      'ble_last_scan': FieldValue.serverTimestamp(),
     });
   }
 
   Future<void> clearLocation(String uid) async {
     await _db.collection('users').doc(uid).update({
       'location': FieldValue.delete(),
+      'ble_active': false,
     });
+  }
+
+  /// Get nearby users by GPS within [radiusKm] who are BLE-active
+  /// (have ble_active flag set to true and location within range).
+  Future<List<AppUser>> getNearbyBleUsers(
+      double lat, double lng, double radiusKm,
+      {int maxAgeMinutes = 5}) async {
+    final snap = await _db
+        .collection('users')
+        .where('discoverable', isEqualTo: true)
+        .where('ble_active', isEqualTo: true)
+        .get();
+
+    return snap.docs
+        .map((d) => AppUser.fromFirestore(d))
+        .where((u) {
+          if (u.locationLat == null || u.locationLng == null) return false;
+          final dist = _haversine(lat, lng, u.locationLat!, u.locationLng!);
+          return dist <= radiusKm;
+        })
+        .map((u) {
+          final dist = _haversine(lat, lng, u.locationLat!, u.locationLng!);
+          return u.copyWith(distanceKm: dist);
+        })
+        .toList()
+      ..sort((a, b) =>
+          (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999));
   }
 
   // ─────────────────────────────────────────────

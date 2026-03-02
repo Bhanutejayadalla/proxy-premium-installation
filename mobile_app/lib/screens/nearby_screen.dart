@@ -79,11 +79,21 @@ class _NearbyScreenState extends State<NearbyScreen> {
 
     try {
       state.scanNearby();
-      // Wait a reasonable amount for results
-      await Future.delayed(const Duration(seconds: 4));
+
+      // Wait for BLE scan to complete (8s scan + processing)
+      final waitTime = state.discoveryMode == DiscoveryMode.ble ? 12 : 4;
+      await Future.delayed(Duration(seconds: waitTime));
+
       if (mounted) {
-        setState(
-            () => _status = _ScanStatus.done);
+        // Check if BLE scan produced an error
+        if (state.bleScanError.isNotEmpty) {
+          setState(() {
+            _status = _ScanStatus.error;
+            _errorMessage = state.bleScanError;
+          });
+        } else {
+          setState(() => _status = _ScanStatus.done);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -163,7 +173,9 @@ class _NearbyScreenState extends State<NearbyScreen> {
                 ),
               if (_status == _ScanStatus.done)
                 Text(
-                    "${state.nearbyUsers.length} found",
+                    state.discoveryMode == DiscoveryMode.ble
+                        ? "${state.nearbyUsers.length} found (${state.bleDevicesDetected} BLE)"
+                        : "${state.nearbyUsers.length} found",
                     style: const TextStyle(
                         fontSize: 12,
                         color: Colors.green,
@@ -322,7 +334,9 @@ class _NearbyScreenState extends State<NearbyScreen> {
                       ),
                       title: Text(user.username),
                       subtitle: Text(user.distanceKm != null
-                          ? '${user.distanceKm!.toStringAsFixed(1)} km away'
+                          ? (user.distanceKm! < 0.1
+                              ? '${(user.distanceKm! * 1000).toStringAsFixed(0)} m away'
+                              : '${user.distanceKm!.toStringAsFixed(1)} km away')
                           : user.bio),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
