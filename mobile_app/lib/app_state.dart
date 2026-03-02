@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'services/auth_service.dart';
+import 'services/ble_advertiser_service.dart';
 import 'services/firebase_service.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
+import 'services/user_cache_service.dart';
 import 'ble_service.dart';
 import 'models.dart';
 
@@ -14,7 +16,9 @@ class AppState extends ChangeNotifier {
   final AuthService auth = AuthService();
   final FirebaseService firebase = FirebaseService();
   final BleService ble = BleService();
+  final BleAdvertiserService bleAdvertiser = BleAdvertiserService();
   final LocationService location = LocationService();
+  final UserCacheService userCache = UserCacheService();
 
   AppUser? currentUser;
   bool isFormal = true;
@@ -71,6 +75,9 @@ class AppState extends ChangeNotifier {
         currentUser = profile;
         _startListeners();
         _registerFcmToken();
+        // Start BLE advertising + sync user cache (non-blocking)
+        startBleAdvertising();
+        syncUserCacheFromFirestore();
         notifyListeners();
       }
       return null; // success
@@ -95,6 +102,9 @@ class AppState extends ChangeNotifier {
       currentUser = profile;
       _startListeners();
       _registerFcmToken();
+      // Start BLE advertising + sync user cache (non-blocking)
+      startBleAdvertising();
+      syncUserCacheFromFirestore();
       notifyListeners();
       return null; // success
     } catch (e) {
@@ -120,6 +130,10 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     _stopListeners();
+    await stopBleAdvertising();
+    if (currentUser != null) {
+      try { await firebase.clearLocation(currentUser!.uid); } catch (_) {}
+    }
     await auth.signOut();
     currentUser = null;
     feed = [];
@@ -431,14 +445,59 @@ class AppState extends ChangeNotifier {
   /// Error message from the last scan attempt (empty if successful).
   String bleScanError = '';
 
-  /// Number of raw BLE devices detected in the last scan.
+  /// Number of Proxi users detected via BLE in the last scan.
+  int bleProxiUsersDetected = 0;
+
+  /// Number of total BLE devices detected (for diagnostics).
   int bleDevicesDetected = 0;
+
+  /// Whether BLE advertising is currently active.
+  bool isBleAdvertising = false;
+
+  /// Start BLE advertising (called on login and when entering BLE mode).
+  Future<void> startBleAdvertising() async {
+    if (currentUser == null) return;
+    try {
+      final supported = await bleAdvertiser.isSupported();
+      if (!supported) return;
+      await bleAdvertiser.startAdvertising(currentUser!.uid);
+      isBleAdvertising = true;
+      notifyListeners();
+    } catch (_) {
+      isBleAdvertising = false;
+    }
+  }
+
+  /// Stop BLE advertising (called on logout and when leaving BLE mode).
+  Future<void> stopBleAdvertising() async {
+    try {
+      await bleAdvertiser.stopAdvertising();
+    } catch (_) {}
+    isBleAdvertising = false;
+    notifyListeners();
+  }
+
+  /// Sync discoverable users to local cache (call when online).
+  Future<void> syncUserCacheFromFirestore() async {
+    try {
+      final users = await firebase.getDiscoverableUsers();
+      await userCache.cacheUsers(users);
+    } catch (_) {
+      // Offline or error — cache stays as-is
+    }
+  }
 
   void scanNearby() async {
     bleScanError = '';
     bleDevicesDetected = 0;
+    bleProxiUsersDetected = 0;
 
     if (discoveryMode == DiscoveryMode.ble) {
+      // ═══════════════════════════════════════════
+      //  BLE MODE — WORKS FULLY OFFLINE
+      //  No internet required. Uses Bluetooth only.
+      // ═══════════════════════════════════════════
+
       // ── Step 1: Verify Bluetooth is actually ON ──
       final btOn = await ble.isBluetoothOn();
       if (!btOn) {
@@ -455,7 +514,80 @@ class AppState extends ChangeNotifier {
         return;
       }
 
-      // ── Step 3: Get GPS position (needed to identify Proxi users) ──
+      // ── Step 3: Start advertising our UID so others can find us ──
+      await startBleAdvertising();
+
+      // ── Step 4: Scan for other Proxi users (no internet needed!) ──
+      // Looks for BLE advertisements with our custom manufacturer data.
+      final proxiUsers = await ble.scanForProxiUsers(
+        durationSeconds: 8,
+        minRssi: BleService.rssiThreshold,
+      );
+      bleProxiUsersDetected = proxiUsers.length;
+
+      // Also run a general scan for diagnostics
+      // (how many total BLE devices are nearby)
+      final allDevices = await ble.scanAndCollect(
+        durationSeconds: 3,
+        minRssi: BleService.rssiThreshold,
+      );
+      bleDevicesDetected = allDevices.length;
+
+      // ── Step 5: Build user list from cache ──
+      // For each discovered Proxi UID, look up their profile in local cache.
+      final List<AppUser> foundUsers = [];
+      for (final bleUser in proxiUsers) {
+        if (bleUser.uid == currentUser?.uid) continue;
+
+        // Try local cache first (works offline)
+        final cached = await userCache.getCachedUser(bleUser.uid);
+        if (cached != null) {
+          foundUsers.add(AppUser(
+            uid: bleUser.uid,
+            username: cached['username'] ?? 'Proxi User',
+            avatarFormal: cached['avatar_formal'] ?? '',
+            avatarCasual: cached['avatar_casual'] ?? '',
+            bio: cached['bio'] ?? '',
+            headline: cached['headline'] ?? '',
+            fullName: cached['full_name'] ?? '',
+            distanceKm: bleUser.distanceM / 1000, // Convert meters → km
+          ));
+        } else {
+          // Not in cache — show with minimal info (UID-based placeholder)
+          foundUsers.add(AppUser(
+            uid: bleUser.uid,
+            username: 'Proxi User',
+            bio: '~${bleUser.distanceM.toStringAsFixed(0)}m away via Bluetooth',
+            distanceKm: bleUser.distanceM / 1000,
+          ));
+        }
+      }
+
+      nearbyUsers = foundUsers
+        ..sort((a, b) => (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999));
+
+      // ── Step 6 (optional): If online, also update location for GPS users ──
+      try {
+        final pos = await location.getCurrentPosition();
+        if (pos != null && currentUser != null) {
+          await firebase.updateLocation(
+              currentUser!.uid, pos.latitude, pos.longitude, bleActive: true);
+          // Sync cache while we have internet
+          await syncUserCacheFromFirestore();
+        }
+      } catch (_) {
+        // Offline — no problem, BLE results are already shown
+      }
+
+    } else {
+      // ═══════════════════════════════════════════
+      //  GPS MODE — REQUIRES INTERNET
+      //  Uses Firestore to find users by location.
+      // ═══════════════════════════════════════════
+
+      // Stop BLE advertising (not needed in GPS mode)
+      await stopBleAdvertising();
+
       final pos = await location.getCurrentPosition();
       if (pos == null) {
         bleScanError = 'Could not get your location. Please enable Location services and try again.';
@@ -463,55 +595,7 @@ class AppState extends ChangeNotifier {
         return;
       }
 
-      // ── Step 4: Update our own location with BLE-active flag ──
-      if (currentUser != null) {
-        await firebase.updateLocation(
-            currentUser!.uid, pos.latitude, pos.longitude, bleActive: true);
-      }
-
-      // ── Step 5: Run BLE scan to confirm Bluetooth is working ──
-      // This proves physical proximity — BLE scan detects nearby Bluetooth
-      // devices within ~30-50m. We then use GPS to identify which are Proxi users.
       try {
-        final scanResults = await ble.scanAndCollect(
-          durationSeconds: 8,
-          minRssi: BleService.rssiThreshold,
-        );
-        bleDevicesDetected = scanResults.length;
-      } catch (e) {
-        // BLE scan failed but we can still use GPS proximity
-        bleDevicesDetected = 0;
-      }
-
-      // ── Step 6: Find Proxi users within BLE range (~50m) ──
-      // Uses GPS to identify users, BLE-active flag ensures they're also scanning.
-      // 0.05 km = 50 meters — matches practical BLE range.
-      final bleRangeUsers = await firebase.getNearbyBleUsers(
-          pos.latitude, pos.longitude, 0.05, maxAgeMinutes: 5);
-
-      // Also include GPS-nearby users within slightly wider range
-      // in case other user hasn't set ble_active yet
-      final gpsNearbyUsers = await firebase.getNearbyByGps(
-          pos.latitude, pos.longitude, 0.05);
-
-      // Merge: BLE-active users first, then GPS-nearby users (deduplicated)
-      final Map<String, AppUser> merged = {};
-      for (final u in bleRangeUsers) {
-        if (u.uid != currentUser?.uid) merged[u.uid] = u;
-      }
-      for (final u in gpsNearbyUsers) {
-        if (u.uid != currentUser?.uid && !merged.containsKey(u.uid)) {
-          merged[u.uid] = u;
-        }
-      }
-
-      nearbyUsers = merged.values.toList()
-        ..sort((a, b) => (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999));
-
-    } else {
-      // ── GPS discovery (10 km range) ──
-      final pos = await location.getCurrentPosition();
-      if (pos != null) {
         if (currentUser != null) {
           await firebase.updateLocation(
               currentUser!.uid, pos.latitude, pos.longitude);
@@ -521,6 +605,10 @@ class AppState extends ChangeNotifier {
         nearbyUsers = gpsUsers
             .where((u) => u.uid != currentUser?.uid)
             .toList();
+      } catch (e) {
+        bleScanError = 'GPS discovery requires internet connection. Please connect to the internet and try again.';
+        notifyListeners();
+        return;
       }
     }
     notifyListeners();

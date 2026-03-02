@@ -1,12 +1,29 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+
+/// Represents a Proxi user discovered via BLE advertisement.
+class BleDiscoveredUser {
+  final String uid;       // Firebase UID extracted from manufacturer data
+  final int rssi;         // Signal strength
+  final double distanceM; // Estimated distance in meters
+
+  BleDiscoveredUser({
+    required this.uid,
+    required this.rssi,
+    required this.distanceM,
+  });
+}
 
 class BleService {
   /// Maximum RSSI threshold — devices weaker than this are ignored.
   /// -80 dBm ≈ ~30-50 meters in open space (BLE practical range).
   static const int rssiThreshold = -80;
+
+  /// Manufacturer company ID used by Proxi (must match native Kotlin code).
+  static const int proxiCompanyId = 0xFF01;
 
   /// Approximate distance (meters) from RSSI using log-distance model.
   /// txPower = -59 dBm (typical at 1 meter), n = 2.0 (path-loss exponent).
@@ -17,7 +34,6 @@ class BleService {
 
   /// Check if the Bluetooth adapter is on and permissions are granted.
   Future<bool> init() async {
-    // Request permissions required for Bluetooth scanning
     final results = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
@@ -25,14 +41,12 @@ class BleService {
       Permission.location,
     ].request();
 
-    // Check if any critical permission was denied
     if (results[Permission.bluetoothScan]?.isDenied == true ||
         results[Permission.bluetoothConnect]?.isDenied == true ||
         results[Permission.location]?.isDenied == true) {
       return false;
     }
 
-    // Check hardware status
     try {
       final adapterState = await FlutterBluePlus.adapterState.first
           .timeout(const Duration(seconds: 3), onTimeout: () => BluetoothAdapterState.unknown);
@@ -56,28 +70,85 @@ class BleService {
     }
   }
 
-  /// Perform a BLE scan for [duration] seconds and return ALL discovered
-  /// devices that meet the RSSI threshold. Accumulates results over the
-  /// full scan window instead of just taking the first emission.
+  /// Scan for Proxi users specifically — filters BLE advertisements that
+  /// contain our custom manufacturer data (company ID 0xFF01 + UID bytes).
+  ///
+  /// Returns a list of [BleDiscoveredUser] with UID and estimated distance.
+  /// This works fully OFFLINE — no internet needed.
+  Future<List<BleDiscoveredUser>> scanForProxiUsers({
+    int minRssi = rssiThreshold,
+    int durationSeconds = 8,
+  }) async {
+    final Map<String, BleDiscoveredUser> discoveredUsers = {};
+
+    // Stop any previous scan
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
+
+    final sub = FlutterBluePlus.scanResults.listen((results) {
+      for (final r in results) {
+        if (r.rssi < minRssi) continue;
+
+        // Check manufacturer data for Proxi company ID
+        final uid = _extractProxiUid(r);
+        if (uid != null && uid.isNotEmpty) {
+          final distance = estimateDistanceMeters(r.rssi);
+          // Keep the strongest signal per user
+          if (!discoveredUsers.containsKey(uid) ||
+              r.rssi > discoveredUsers[uid]!.rssi) {
+            discoveredUsers[uid] = BleDiscoveredUser(
+              uid: uid,
+              rssi: r.rssi,
+              distanceM: distance,
+            );
+          }
+        }
+      }
+    });
+
+    // Start scan
+    await FlutterBluePlus.startScan(timeout: Duration(seconds: durationSeconds));
+    await Future.delayed(Duration(seconds: durationSeconds + 1));
+
+    await sub.cancel();
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
+
+    return discoveredUsers.values.toList()
+      ..sort((a, b) => a.distanceM.compareTo(b.distanceM));
+  }
+
+  /// Extract a Proxi UID from a scan result's manufacturer data.
+  /// Returns null if this is not a Proxi advertisement.
+  String? _extractProxiUid(ScanResult result) {
+    final mfData = result.advertisementData.manufacturerData;
+    if (mfData.isEmpty) return null;
+
+    // Check for our company ID (0xFF01 = 65281)
+    if (mfData.containsKey(proxiCompanyId)) {
+      final bytes = mfData[proxiCompanyId]!;
+      if (bytes.isEmpty) return null;
+      try {
+        return utf8.decode(bytes).trim();
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /// Perform a general BLE scan (includes all devices, not just Proxi).
+  /// Returns total device count for diagnostics.
   Future<List<ScanResult>> scanAndCollect({
     int minRssi = rssiThreshold,
     int durationSeconds = 8,
   }) async {
     final Map<String, ScanResult> bestResults = {};
 
-    // Stop any previous scan
-    try {
-      await FlutterBluePlus.stopScan();
-    } catch (_) {}
-
-    // Start a fresh scan
-    final completer = Completer<List<ScanResult>>();
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
 
     final sub = FlutterBluePlus.scanResults.listen((results) {
       for (final r in results) {
         if (r.rssi >= minRssi) {
           final id = r.device.remoteId.str.toUpperCase();
-          // Keep the strongest signal for each device
           if (!bestResults.containsKey(id) || r.rssi > bestResults[id]!.rssi) {
             bestResults[id] = r;
           }
@@ -85,20 +156,11 @@ class BleService {
       }
     });
 
-    // Start scan with timeout
     await FlutterBluePlus.startScan(timeout: Duration(seconds: durationSeconds));
-
-    // Wait for scan to complete
     await Future.delayed(Duration(seconds: durationSeconds + 1));
 
     await sub.cancel();
-    try {
-      await FlutterBluePlus.stopScan();
-    } catch (_) {}
-
-    if (!completer.isCompleted) {
-      completer.complete(bestResults.values.toList());
-    }
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
 
     return bestResults.values.toList();
   }
@@ -113,8 +175,6 @@ class BleService {
 
   /// Stop any ongoing scan.
   Future<void> stopScan() async {
-    try {
-      await FlutterBluePlus.stopScan();
-    } catch (_) {}
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
   }
 }

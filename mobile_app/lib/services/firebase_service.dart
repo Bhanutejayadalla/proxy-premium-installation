@@ -514,6 +514,28 @@ class FirebaseService {
           (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999));
   }
 
+  /// Fetch all discoverable users for local caching (used for offline BLE).
+  /// Returns a list of maps with basic profile fields.
+  Future<List<Map<String, dynamic>>> getDiscoverableUsers() async {
+    final snap = await _db
+        .collection('users')
+        .where('discoverable', isEqualTo: true)
+        .get();
+
+    return snap.docs.map((d) {
+      final data = d.data();
+      return {
+        'uid': d.id,
+        'username': data['username'] ?? '',
+        'avatar_formal': data['avatar_formal'] ?? '',
+        'avatar_casual': data['avatar_casual'] ?? '',
+        'bio': data['bio'] ?? '',
+        'headline': data['headline'] ?? '',
+        'full_name': data['full_name'] ?? '',
+      };
+    }).toList();
+  }
+
   // ─────────────────────────────────────────────
   //  JOBS (Phase 2 — Formal Mode Only)
   // ─────────────────────────────────────────────

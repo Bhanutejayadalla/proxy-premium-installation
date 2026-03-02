@@ -24,9 +24,10 @@ class _NearbyScreenState extends State<NearbyScreen> {
     if (mode == DiscoveryMode.ble) {
       final btScan = await Permission.bluetoothScan.request();
       final btConnect = await Permission.bluetoothConnect.request();
+      final btAdvertise = await Permission.bluetoothAdvertise.request();
       final location = await Permission.locationWhenInUse.request();
 
-      if (btScan.isDenied || btConnect.isDenied || location.isDenied) {
+      if (btScan.isDenied || btConnect.isDenied || btAdvertise.isDenied || location.isDenied) {
         setState(() {
           _status = _ScanStatus.error;
           _errorMessage =
@@ -36,6 +37,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
       }
       if (btScan.isPermanentlyDenied ||
           btConnect.isPermanentlyDenied ||
+          btAdvertise.isPermanentlyDenied ||
           location.isPermanentlyDenied) {
         setState(() {
           _status = _ScanStatus.error;
@@ -144,14 +146,44 @@ class _NearbyScreenState extends State<NearbyScreen> {
           child: Row(
             children: [
               ChoiceChip(
-                label: const Text("Bluetooth"),
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("Bluetooth"),
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text("Offline",
+                          style: TextStyle(fontSize: 8, color: Colors.orange, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
                 avatar: const Icon(Icons.bluetooth, size: 16),
                 selected: state.discoveryMode == DiscoveryMode.ble,
                 onSelected: (_) => state.setDiscoveryMode(DiscoveryMode.ble),
               ),
               const SizedBox(width: 10),
               ChoiceChip(
-                label: const Text("GPS"),
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("GPS"),
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text("Online",
+                          style: TextStyle(fontSize: 8, color: Colors.green, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
                 avatar: const Icon(Icons.gps_fixed, size: 16),
                 selected: state.discoveryMode == DiscoveryMode.gps,
                 onSelected: (_) => state.setDiscoveryMode(DiscoveryMode.gps),
@@ -174,7 +206,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
               if (_status == _ScanStatus.done)
                 Text(
                     state.discoveryMode == DiscoveryMode.ble
-                        ? "${state.nearbyUsers.length} found (${state.bleDevicesDetected} BLE)"
+                        ? "${state.bleProxiUsersDetected} Proxi (${state.bleDevicesDetected} BLE)"
                         : "${state.nearbyUsers.length} found",
                     style: const TextStyle(
                         fontSize: 12,
@@ -208,8 +240,8 @@ class _NearbyScreenState extends State<NearbyScreen> {
               const SizedBox(width: 6),
               Text(
                 state.discoveryMode == DiscoveryMode.ble
-                    ? "BLE range: ~30-50 meters (RSSI filtered)"
-                    : "GPS radius: 10 km",
+                    ? "BLE range: ~30-50m  \u2022  No internet needed"
+                    : "GPS radius: 10 km  \u2022  Requires internet",
                 style: TextStyle(
                   fontSize: 11,
                   color: state.discoveryMode == DiscoveryMode.ble
