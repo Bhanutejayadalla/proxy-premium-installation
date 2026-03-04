@@ -2,10 +2,11 @@
 
 **A dual-mode social networking app that adapts to your life: Professional when you need it, Casual when you don't.**
 
-![Version](https://img.shields.io/badge/version-2.0-blue)
+![Version](https://img.shields.io/badge/version-2.1-blue)
 ![Firebase](https://img.shields.io/badge/backend-Firebase-orange)
 ![Flutter](https://img.shields.io/badge/Flutter-3.0+-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
+![BLE](https://img.shields.io/badge/BLE-Offline_Mode-orange)
 
 ---
 
