@@ -26,6 +26,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   Future<void> _handleShare() async {
     if (_isPosting) return;
+    if (_text.text.trim().isEmpty && _file == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Add some text or media to share")),
+      );
+      return;
+    }
     setState(() => _isPosting = true);
     try {
       await Provider.of<AppState>(context, listen: false)

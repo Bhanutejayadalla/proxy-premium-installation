@@ -146,8 +146,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               stream: Provider.of<AppState>(context, listen: false)
                   .getChatMessages(_chatId),
               builder: (ctx, snap) {
+                if (snap.hasError) {
+                  return Center(
+                    child: Text("Error loading messages: ${snap.error}",
+                        style: const TextStyle(color: Colors.red)));
+                }
                 final msgs = snap.data ?? [];
+                if (msgs.isEmpty) {
+                  return const Center(
+                    child: Text("No messages yet. Say hello!",
+                        style: TextStyle(color: Colors.grey)));
+                }
                 return ListView.builder(
+                  reverse: true,
                   padding: const EdgeInsets.all(10),
                   itemCount: msgs.length,
                   itemBuilder: (ctx, i) {

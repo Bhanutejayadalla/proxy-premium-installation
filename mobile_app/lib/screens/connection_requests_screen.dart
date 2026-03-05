@@ -10,7 +10,7 @@ class ConnectionRequestsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<AppState>(context, listen: false);
+    final state = Provider.of<AppState>(context);
 
     return Scaffold(
       appBar: AppBar(title: const Text("Connection Requests")),
@@ -73,7 +73,9 @@ class ConnectionRequestsScreen extends StatelessWidget {
                                         .getAvatar(state.isFormal)
                                         .isEmpty
                                     ? Text(
-                                        user.username[0].toUpperCase())
+                                        user.username.isNotEmpty
+                                            ? user.username[0].toUpperCase()
+                                            : '?')
                                     : null,
                               ),
                               const SizedBox(width: 12),

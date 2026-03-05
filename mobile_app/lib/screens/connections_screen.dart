@@ -12,7 +12,7 @@ class ConnectionsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<AppState>(context, listen: false);
+    final state = Provider.of<AppState>(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -81,7 +81,9 @@ class ConnectionsScreen extends StatelessWidget {
                               ? NetworkImage(user.getAvatar(state.isFormal))
                               : null,
                       child: user.getAvatar(state.isFormal).isEmpty
-                          ? Text(user.username[0].toUpperCase())
+                          ? Text(user.username.isNotEmpty
+                              ? user.username[0].toUpperCase()
+                              : '?')
                           : null,
                     ),
                     title: Text(user.fullName.isNotEmpty

@@ -1,4 +1,4 @@
-package com.example.dual_mode_app
+package com.proxi.premium
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
@@ -7,19 +7,13 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
-import android.os.ParcelUuid
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import java.util.UUID
 
 class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "com.proxi.ble_advertiser"
-
-    // Proxi custom BLE service UUID — all Proxi apps use this for discovery
-    private val PROXI_SERVICE_UUID: UUID =
-        UUID.fromString("0000B1E0-PRXI-4A5B-8D2E-0123456789AB".replace("PRXI", "9999"))
 
     private var advertiser: BluetoothLeAdvertiser? = null
     private var advertiseCallback: AdvertiseCallback? = null
@@ -75,8 +69,9 @@ class MainActivity : FlutterActivity() {
         }
 
         // Encode UID into manufacturer data (Company ID 0xFF01 + UID bytes)
-        // Max 24 bytes for UID (fits Firebase UIDs which are 28 chars — we truncate safely)
-        val uidBytes = uid.toByteArray(Charsets.UTF_8).take(24).toByteArray()
+        // BLE advert limit = 31 bytes. Flags(3) + Mfg header(4) + payload = 31 → max 24 bytes payload.
+        // We use 20 bytes to stay safely under the limit. Scanner matches by UID prefix.
+        val uidBytes = uid.toByteArray(Charsets.UTF_8).take(20).toByteArray()
         val companyId = 0xFF01  // Custom/test company ID
         val manufacturerData = uidBytes
 
@@ -90,7 +85,8 @@ class MainActivity : FlutterActivity() {
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
             .setIncludeTxPowerLevel(false)
-            .addServiceUuid(ParcelUuid(PROXI_SERVICE_UUID))
+            // No service UUID — it consumes 18 bytes and pushes packet over the 31-byte BLE limit.
+            // Discovery is done via manufacturer data company ID 0xFF01 instead.
             .addManufacturerData(companyId, manufacturerData)
             .build()
 

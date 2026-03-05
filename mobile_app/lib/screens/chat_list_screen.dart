@@ -62,6 +62,34 @@ class _DirectChatsTab extends StatelessWidget {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        if (snap.hasError) {
+          final err = snap.error.toString();
+          // Firestore missing-index errors contain a URL to create the index
+          if (err.contains('indexes?create_composite')) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.build, size: 48, color: Colors.orange),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "Firestore index not yet created.\n"
+                      "Ask the admin to deploy indexes:\n"
+                      "firebase deploy --only firestore:indexes",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          return Center(
+            child: Text("Error: $err",
+                style: const TextStyle(color: Colors.red)));
+        }
         final convos = snap.data ?? [];
         if (convos.isEmpty) {
           return const Center(
@@ -125,6 +153,33 @@ class _GroupChatsTab extends StatelessWidget {
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          final err = snap.error.toString();
+          if (err.contains('indexes?create_composite')) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.build, size: 48, color: Colors.orange),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "Firestore index not yet created.\n"
+                      "Ask the admin to deploy indexes:\n"
+                      "firebase deploy --only firestore:indexes",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          return Center(
+            child: Text("Error: $err",
+                style: const TextStyle(color: Colors.red)));
         }
         final groups = snap.data ?? [];
         if (groups.isEmpty) {

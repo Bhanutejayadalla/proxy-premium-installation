@@ -1,15 +1,23 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class LocationService {
   Timer? _updateTimer;
   Position? lastPosition;
 
-  /// Check and request location permissions.
+  /// Check and request location permissions using Geolocator's own API.
+  /// Returns true only if permission is granted (or already granted).
   Future<bool> requestPermission() async {
-    final status = await Permission.location.request();
-    return status.isGranted;
+    // Check if location service is enabled first
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return false;
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    return permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
   }
 
   /// Get the current GPS position.
@@ -20,11 +28,23 @@ class LocationService {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return null;
 
-    final pos = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.medium,
-    );
-    lastPosition = pos;
-    return pos;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      ).timeout(const Duration(seconds: 15));
+      lastPosition = pos;
+      return pos;
+    } catch (_) {
+      // Timeout or error — try last known position as fallback
+      try {
+        final last = await Geolocator.getLastKnownPosition();
+        if (last != null) {
+          lastPosition = last;
+          return last;
+        }
+      } catch (_) {}
+      return null;
+    }
   }
 
   /// Start periodic location updates (30s) — call only when nearby screen is active.

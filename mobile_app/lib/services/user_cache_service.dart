@@ -64,6 +64,23 @@ class UserCacheService {
     return cache[uid];
   }
 
+  /// Get a cached user whose UID starts with [prefix].
+  ///
+  /// Used by BLE discovery: the advertised UID is truncated to 20 chars to fit
+  /// within the 31-byte BLE advertisement limit.  We find the full-UID entry by
+  /// prefix matching so the profile lookup still succeeds.
+  Future<Map<String, dynamic>?> getCachedUserByUidPrefix(String prefix) async {
+    if (prefix.isEmpty) return null;
+    final cache = await getAllCachedUsers();
+    // Try exact match first (future-proof if full UID ever fits)
+    if (cache.containsKey(prefix)) return cache[prefix];
+    // Fall back to prefix match
+    for (final entry in cache.entries) {
+      if (entry.key.startsWith(prefix)) return entry.value;
+    }
+    return null;
+  }
+
   /// Get all cached users as a map of uid → profile data.
   Future<Map<String, Map<String, dynamic>>> getAllCachedUsers() async {
     final prefs = await _preferences;

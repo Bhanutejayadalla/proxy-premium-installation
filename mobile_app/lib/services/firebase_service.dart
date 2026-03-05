@@ -289,7 +289,7 @@ class FirebaseService {
         .collection('chats')
         .doc(chatId)
         .collection('messages')
-        .orderBy('timestamp', descending: false)
+        .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snap) =>
             snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
@@ -827,7 +827,7 @@ class FirebaseService {
         .collection('group_chats')
         .doc(groupId)
         .collection('messages')
-        .orderBy('timestamp', descending: false)
+        .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snap) =>
             snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
@@ -938,5 +938,392 @@ class FirebaseService {
     }
     batch.delete(_db.collection('group_chats').doc(groupId));
     await batch.commit();
+  }
+
+  // ═════════════════════════════════════════════
+  //  SEARCH & FILTER STUDENTS
+  // ═════════════════════════════════════════════
+
+  Future<List<AppUser>> searchStudents({
+    String? query,
+    String? department,
+    String? year,
+    String? skill,
+    String? interest,
+  }) async {
+    Query<Map<String, dynamic>> ref = _db.collection('users');
+    if (department != null && department.isNotEmpty) {
+      ref = ref.where('department', isEqualTo: department);
+    }
+    if (year != null && year.isNotEmpty) {
+      ref = ref.where('year', isEqualTo: year);
+    }
+    final snap = await ref.limit(100).get();
+    var users = snap.docs.map((d) => AppUser.fromFirestore(d)).toList();
+
+    if (query != null && query.isNotEmpty) {
+      final q = query.toLowerCase();
+      users = users.where((u) =>
+          u.username.toLowerCase().contains(q) ||
+          u.fullName.toLowerCase().contains(q) ||
+          u.bio.toLowerCase().contains(q) ||
+          u.headline.toLowerCase().contains(q)).toList();
+    }
+    if (skill != null && skill.isNotEmpty) {
+      users = users.where((u) =>
+          u.skills.any((s) => s.toLowerCase().contains(skill.toLowerCase()))).toList();
+    }
+    if (interest != null && interest.isNotEmpty) {
+      users = users.where((u) =>
+          u.interests.any((i) => i.toLowerCase().contains(interest.toLowerCase()))).toList();
+    }
+    return users;
+  }
+
+  /// Personalized recommendations: students with overlapping skills/interests/department.
+  Future<List<AppUser>> getRecommendedUsers(AppUser currentUser) async {
+    final snap = await _db.collection('users')
+        .where('discoverable', isEqualTo: true)
+        .limit(200)
+        .get();
+    final users = snap.docs
+        .map((d) => AppUser.fromFirestore(d))
+        .where((u) => u.uid != currentUser.uid)
+        .toList();
+
+    // Score users by similarity
+    final scored = users.map((u) {
+      int score = 0;
+      for (final s in currentUser.skills) {
+        if (u.skills.contains(s)) score += 3;
+      }
+      for (final i in currentUser.interests) {
+        if (u.interests.contains(i)) score += 2;
+      }
+      if (u.department == currentUser.department && currentUser.department.isNotEmpty) score += 2;
+      if (u.year == currentUser.year && currentUser.year.isNotEmpty) score += 1;
+      return MapEntry(u, score);
+    }).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return scored.where((e) => e.value > 0).map((e) => e.key).take(20).toList();
+  }
+
+  // ═════════════════════════════════════════════
+  //  PROJECTS
+  // ═════════════════════════════════════════════
+
+  Future<void> createProject(Map<String, dynamic> data) async {
+    await _db.collection('projects').add({
+      ...data,
+      'member_ids': [data['creator_id']],
+      'applicant_ids': <String>[],
+      'status': 'open',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<Project>> getProjectsStream({String? domain}) {
+    Query<Map<String, dynamic>> ref = _db.collection('projects')
+        .orderBy('timestamp', descending: true);
+    if (domain != null && domain.isNotEmpty) {
+      ref = ref.where('domain', isEqualTo: domain);
+    }
+    return ref.limit(50).snapshots().map(
+        (snap) => snap.docs.map((d) => Project.fromFirestore(d)).toList());
+  }
+
+  Future<void> applyToProject(String projectId, String uid) async {
+    await _db.collection('projects').doc(projectId).update({
+      'applicant_ids': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  Future<void> acceptProjectMember(String projectId, String uid) async {
+    await _db.collection('projects').doc(projectId).update({
+      'member_ids': FieldValue.arrayUnion([uid]),
+      'applicant_ids': FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  Future<void> updateProjectStatus(String projectId, String status) async {
+    await _db.collection('projects').doc(projectId).update({'status': status});
+  }
+
+  // ═════════════════════════════════════════════
+  //  STUDY GROUPS
+  // ═════════════════════════════════════════════
+
+  Future<void> createStudyGroup(Map<String, dynamic> data) async {
+    await _db.collection('study_groups').add({
+      ...data,
+      'member_ids': [data['creator_id']],
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<StudyGroup>> getStudyGroupsStream() {
+    return _db.collection('study_groups')
+        .orderBy('timestamp', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => StudyGroup.fromFirestore(d)).toList());
+  }
+
+  Future<void> joinStudyGroup(String groupId, String uid) async {
+    await _db.collection('study_groups').doc(groupId).update({
+      'member_ids': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  Future<void> leaveStudyGroup(String groupId, String uid) async {
+    await _db.collection('study_groups').doc(groupId).update({
+      'member_ids': FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  // ═════════════════════════════════════════════
+  //  SKILL EXCHANGE
+  // ═════════════════════════════════════════════
+
+  Future<void> createSkillExchange(Map<String, dynamic> data) async {
+    await _db.collection('skill_exchanges').add({
+      ...data,
+      'status': 'active',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<SkillExchange>> getSkillExchangesStream() {
+    return _db.collection('skill_exchanges')
+        .where('status', isEqualTo: 'active')
+        .orderBy('timestamp', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => SkillExchange.fromFirestore(d)).toList());
+  }
+
+  Future<void> closeSkillExchange(String id) async {
+    await _db.collection('skill_exchanges').doc(id).update({'status': 'closed'});
+  }
+
+  // ═════════════════════════════════════════════
+  //  COMMUNITIES
+  // ═════════════════════════════════════════════
+
+  Future<void> createCommunity(Map<String, dynamic> data) async {
+    await _db.collection('communities').add({
+      ...data,
+      'member_ids': [data['creator_id']],
+      'moderator_ids': [data['creator_id']],
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<Community>> getCommunitiesStream({String? type}) {
+    Query<Map<String, dynamic>> ref = _db.collection('communities')
+        .orderBy('timestamp', descending: true);
+    if (type != null && type.isNotEmpty) {
+      ref = ref.where('type', isEqualTo: type);
+    }
+    return ref.limit(50).snapshots().map(
+        (snap) => snap.docs.map((d) => Community.fromFirestore(d)).toList());
+  }
+
+  Future<void> joinCommunity(String communityId, String uid) async {
+    await _db.collection('communities').doc(communityId).update({
+      'member_ids': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  Future<void> leaveCommunity(String communityId, String uid) async {
+    await _db.collection('communities').doc(communityId).update({
+      'member_ids': FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  // ═════════════════════════════════════════════
+  //  COMMUNITY POSTS / DISCUSSIONS
+  // ═════════════════════════════════════════════
+
+  Future<void> createCommunityPost(Map<String, dynamic> data) async {
+    await _db.collection('community_posts').add({
+      ...data,
+      'upvotes': <String>[],
+      'downvotes': <String>[],
+      'comments': <Map<String, dynamic>>[],
+      'is_pinned': false,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<CommunityPost>> getCommunityPostsStream(String communityId, {bool sortByVotes = false}) {
+    final ref = _db.collection('community_posts')
+        .where('community_id', isEqualTo: communityId)
+        .orderBy('timestamp', descending: true)
+        .limit(50);
+    return ref.snapshots().map((snap) {
+      final posts = snap.docs.map((d) => CommunityPost.fromFirestore(d)).toList();
+      if (sortByVotes) {
+        posts.sort((a, b) => b.score.compareTo(a.score));
+      }
+      return posts;
+    });
+  }
+
+  Future<void> voteCommunityPost(String postId, String uid, bool isUpvote) async {
+    final ref = _db.collection('community_posts').doc(postId);
+    if (isUpvote) {
+      await ref.update({
+        'upvotes': FieldValue.arrayUnion([uid]),
+        'downvotes': FieldValue.arrayRemove([uid]),
+      });
+    } else {
+      await ref.update({
+        'downvotes': FieldValue.arrayUnion([uid]),
+        'upvotes': FieldValue.arrayRemove([uid]),
+      });
+    }
+  }
+
+  Future<void> addCommunityPostComment(String postId, String uid, String username, String text) async {
+    await _db.collection('community_posts').doc(postId).update({
+      'comments': FieldValue.arrayUnion([{
+        'user': username,
+        'uid': uid,
+        'text': text,
+        'timestamp': DateTime.now().toIso8601String(),
+      }]),
+    });
+  }
+
+  // ═════════════════════════════════════════════
+  //  EVENTS (Campus)
+  // ═════════════════════════════════════════════
+
+  Future<void> createEvent(Map<String, dynamic> data) async {
+    await _db.collection('events').add({
+      ...data,
+      'registered_user_ids': <String>[],
+      'status': 'upcoming',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<CampusEvent>> getEventsStream({String? type}) {
+    Query<Map<String, dynamic>> ref = _db.collection('events')
+        .orderBy('start_time', descending: false);
+    if (type != null && type.isNotEmpty) {
+      ref = ref.where('type', isEqualTo: type);
+    }
+    return ref.limit(50).snapshots().map(
+        (snap) => snap.docs.map((d) => CampusEvent.fromFirestore(d)).toList());
+  }
+
+  Future<void> registerForEvent(String eventId, String uid) async {
+    await _db.collection('events').doc(eventId).update({
+      'registered_user_ids': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  Future<void> unregisterFromEvent(String eventId, String uid) async {
+    await _db.collection('events').doc(eventId).update({
+      'registered_user_ids': FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  // ═════════════════════════════════════════════
+  //  VENUE BOOKING (Sports)
+  // ═════════════════════════════════════════════
+
+  Stream<List<Venue>> getVenuesStream({String? type}) {
+    Query<Map<String, dynamic>> ref = _db.collection('venues');
+    if (type != null && type.isNotEmpty) {
+      ref = ref.where('type', isEqualTo: type);
+    }
+    return ref.snapshots().map(
+        (snap) => snap.docs.map((d) => Venue.fromFirestore(d)).toList());
+  }
+
+  Future<void> createVenueBooking(Map<String, dynamic> data) async {
+    await _db.collection('venue_bookings').add({
+      ...data,
+      'status': 'confirmed',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<VenueBooking>> getVenueBookingsStream(String venueId) {
+    return _db.collection('venue_bookings')
+        .where('venue_id', isEqualTo: venueId)
+        .orderBy('date', descending: false)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => VenueBooking.fromFirestore(d)).toList());
+  }
+
+  Future<void> joinVenueBooking(String bookingId, String uid) async {
+    await _db.collection('venue_bookings').doc(bookingId).update({
+      'player_ids': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  /// Find sports peers by sport preference.
+  Future<List<AppUser>> findSportsPeers(String sport, String excludeUid) async {
+    final snap = await _db.collection('users')
+        .where('sports_preferences', arrayContains: sport)
+        .limit(50)
+        .get();
+    return snap.docs
+        .map((d) => AppUser.fromFirestore(d))
+        .where((u) => u.uid != excludeUid)
+        .toList();
+  }
+
+  // ═════════════════════════════════════════════
+  //  CAMPUS MAP LOCATIONS
+  // ═════════════════════════════════════════════
+
+  Future<List<CampusLocation>> getCampusLocations() async {
+    final snap = await _db.collection('campus_locations').get();
+    return snap.docs.map((d) => CampusLocation.fromFirestore(d)).toList();
+  }
+
+  Future<void> addCampusLocation(Map<String, dynamic> data) async {
+    await _db.collection('campus_locations').add(data);
+  }
+
+  // ═════════════════════════════════════════════
+  //  RESOURCE SHARING
+  // ═════════════════════════════════════════════
+
+  Future<void> createSharedResource(Map<String, dynamic> data) async {
+    await _db.collection('shared_resources').add({
+      ...data,
+      'likes': <String>[],
+      'downloads': 0,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<SharedResource>> getSharedResourcesStream({String? subject}) {
+    Query<Map<String, dynamic>> ref = _db.collection('shared_resources')
+        .orderBy('timestamp', descending: true);
+    if (subject != null && subject.isNotEmpty) {
+      ref = ref.where('subject', isEqualTo: subject);
+    }
+    return ref.limit(50).snapshots().map(
+        (snap) => snap.docs.map((d) => SharedResource.fromFirestore(d)).toList());
+  }
+
+  Future<void> likeResource(String resourceId, String uid) async {
+    await _db.collection('shared_resources').doc(resourceId).update({
+      'likes': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  Future<void> incrementResourceDownloads(String resourceId) async {
+    await _db.collection('shared_resources').doc(resourceId).update({
+      'downloads': FieldValue.increment(1),
+    });
   }
 }

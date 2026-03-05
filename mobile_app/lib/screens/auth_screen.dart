@@ -124,12 +124,12 @@ class _AuthScreenState extends State<AuthScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 60),
-              const Text("Proxi",
+              const Text("Proxi Premium",
                   style: TextStyle(
                       fontSize: 48,
                       fontWeight: FontWeight.w900,
                       color: Colors.blue)),
-              const Text("Dual Mode Social",
+              const Text("Premium Social Network",
                   style: TextStyle(color: Colors.grey)),
               const SizedBox(height: 40),
 

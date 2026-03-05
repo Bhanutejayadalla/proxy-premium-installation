@@ -50,21 +50,20 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCu0iCsiPtA4X6U5zl6jwd04V8xYi-4LI8',
-    appId: '1:658063319839:android:336ebeb079103164f6062a',
-    messagingSenderId: '658063319839',
-    projectId: 'proxy-6efd3',
-    storageBucket: 'proxy-6efd3.firebasestorage.app',
+    apiKey: 'AIzaSyCF4O8ifagnihfbtH4TA_LlDx64LDvube0',
+    appId: '1:526968486454:android:d574bbe9ff23d4b88af697',
+    messagingSenderId: '526968486454',
+    projectId: 'proxi-version2',
+    storageBucket: 'proxi-version2.firebasestorage.app',
   );
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyAYk7nR_5dZVc7ZceJPSczK2GarCqHCh-I',
-    appId: '1:658063319839:web:8b8d0367e59b9134f6062a',
-    messagingSenderId: '658063319839',
-    projectId: 'proxy-6efd3',
-    authDomain: 'proxy-6efd3.firebaseapp.com',
-    storageBucket: 'proxy-6efd3.firebasestorage.app',
-    measurementId: 'G-LRMPRD094F',
+    apiKey: 'AIzaSyC4CkW5aGf6ANNzBD96LrolKHTAK8HY9oc',
+    appId: '1:526968486454:web:18c61ee361d6c28e8af697',
+    messagingSenderId: '526968486454',
+    projectId: 'proxi-version2',
+    authDomain: 'proxi-version2.firebaseapp.com',
+    storageBucket: 'proxi-version2.firebasestorage.app',
   );
 
 }

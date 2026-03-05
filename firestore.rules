@@ -106,5 +106,102 @@ service cloud.firestore {
                     && (resource.data.from == request.auth.uid
                         || resource.data.to == request.auth.uid);
     }
+
+    // ── Projects ──────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Study Groups ──────────────────────────────────────────
+    match /study_groups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Skill Exchanges ───────────────────────────────────────
+    match /skill_exchanges/{skillId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.user_id == request.auth.uid;
+      allow update: if isSignedIn()
+                    && resource.data.user_id == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.user_id == request.auth.uid;
+    }
+
+    // ── Communities ───────────────────────────────────────────
+    match /communities/{communityId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Community Posts ───────────────────────────────────────
+    match /community_posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // votes, comments
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Events ────────────────────────────────────────────────
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();   // registration
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Venues ────────────────────────────────────────────────
+    match /venues/{venueId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // ── Venue Bookings ────────────────────────────────────────
+    match /venue_bookings/{bookingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.booker_id == request.auth.uid;
+      allow update: if isSignedIn();   // join booking
+      allow delete: if isSignedIn()
+                    && resource.data.booker_id == request.auth.uid;
+    }
+
+    // ── Campus Locations ──────────────────────────────────────
+    match /campus_locations/{locId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // ── Shared Resources ──────────────────────────────────────
+    match /shared_resources/{resId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.uploader_id == request.auth.uid;
+      allow update: if isSignedIn();   // likes, downloads
+      allow delete: if isSignedIn()
+                    && resource.data.uploader_id == request.auth.uid;
+    }
   }
 }

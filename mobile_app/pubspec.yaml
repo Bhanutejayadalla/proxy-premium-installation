@@ -1,5 +1,5 @@
 name: dual_mode_app
-description: Proxi Social
+description: Proxi Premium - Enhanced Social Connectivity
 environment:
   sdk: ">=3.0.0 <4.0.0"
 

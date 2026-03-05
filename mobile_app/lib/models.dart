@@ -31,6 +31,14 @@ class AppUser {
   final bool openToWork;
   final bool hiring;
 
+  // Campus / Academic fields
+  final String department;
+  final String year; // e.g. '1st', '2nd', '3rd', '4th', 'Masters', 'PhD'
+  final List<String> interests;
+  final List<String> sportsPreferences;
+  final String rollNumber;
+  final String college;
+
   // Phase 3: Location
   final double? locationLat;
   final double? locationLng;
@@ -67,6 +75,12 @@ class AppUser {
     this.resumeUrl,
     this.openToWork = false,
     this.hiring = false,
+    this.department = '',
+    this.year = '',
+    this.interests = const [],
+    this.sportsPreferences = const [],
+    this.rollNumber = '',
+    this.college = '',
     this.locationLat,
     this.locationLng,
     this.distanceKm,
@@ -102,6 +116,12 @@ class AppUser {
       resumeUrl: d['resume_url'],
       openToWork: d['open_to_work'] ?? false,
       hiring: d['hiring'] ?? false,
+      department: d['department'] ?? '',
+      year: d['year'] ?? '',
+      interests: List<String>.from(d['interests'] ?? []),
+      sportsPreferences: List<String>.from(d['sports_preferences'] ?? []),
+      rollNumber: d['roll_number'] ?? '',
+      college: d['college'] ?? '',
       locationLat: loc != null ? (loc['lat'] as num?)?.toDouble() : null,
       locationLng: loc != null ? (loc['lng'] as num?)?.toDouble() : null,
       fcmToken: d['fcm_token'],
@@ -175,6 +195,12 @@ class AppUser {
     String? resumeUrl,
     bool? openToWork,
     bool? hiring,
+    String? department,
+    String? year,
+    List<String>? interests,
+    List<String>? sportsPreferences,
+    String? rollNumber,
+    String? college,
     double? locationLat,
     double? locationLng,
     double? distanceKm,
@@ -206,6 +232,12 @@ class AppUser {
       resumeUrl: resumeUrl ?? this.resumeUrl,
       openToWork: openToWork ?? this.openToWork,
       hiring: hiring ?? this.hiring,
+      department: department ?? this.department,
+      year: year ?? this.year,
+      interests: interests ?? this.interests,
+      sportsPreferences: sportsPreferences ?? this.sportsPreferences,
+      rollNumber: rollNumber ?? this.rollNumber,
+      college: college ?? this.college,
       locationLat: locationLat ?? this.locationLat,
       locationLng: locationLng ?? this.locationLng,
       distanceKm: distanceKm ?? this.distanceKm,
@@ -440,4 +472,488 @@ class Connection {
         mode: map['mode'] ?? 'formal',
         message: map['message'] ?? '',
       );
+}
+
+// ─────────────────────────────────────────────
+//  PROJECT MODEL (Collaboration)
+// ─────────────────────────────────────────────
+
+class Project {
+  final String id;
+  final String title;
+  final String description;
+  final String creatorId;
+  final String creatorUsername;
+  final List<String> requiredSkills;
+  final List<String> memberIds;
+  final List<String> applicantIds;
+  final String status; // open | in-progress | completed
+  final String domain; // e.g. 'AI/ML', 'Web', 'Mobile', 'IoT'
+  final int maxMembers;
+  final DateTime? deadline;
+
+  Project({
+    required this.id,
+    required this.title,
+    this.description = '',
+    required this.creatorId,
+    required this.creatorUsername,
+    this.requiredSkills = const [],
+    this.memberIds = const [],
+    this.applicantIds = const [],
+    this.status = 'open',
+    this.domain = '',
+    this.maxMembers = 5,
+    this.deadline,
+  });
+
+  factory Project.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return Project(
+      id: doc.id,
+      title: d['title'] ?? '',
+      description: d['description'] ?? '',
+      creatorId: d['creator_id'] ?? '',
+      creatorUsername: d['creator_username'] ?? '',
+      requiredSkills: List<String>.from(d['required_skills'] ?? []),
+      memberIds: List<String>.from(d['member_ids'] ?? []),
+      applicantIds: List<String>.from(d['applicant_ids'] ?? []),
+      status: d['status'] ?? 'open',
+      domain: d['domain'] ?? '',
+      maxMembers: d['max_members'] ?? 5,
+      deadline: d['deadline'] != null
+          ? (d['deadline'] as Timestamp).toDate()
+          : null,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  STUDY GROUP MODEL
+// ─────────────────────────────────────────────
+
+class StudyGroup {
+  final String id;
+  final String name;
+  final String subject;
+  final String description;
+  final String creatorId;
+  final String creatorUsername;
+  final List<String> memberIds;
+  final int maxMembers;
+  final String schedule; // e.g. 'Mon/Wed/Fri 5pm'
+  final String location; // e.g. 'Library Room 204'
+
+  StudyGroup({
+    required this.id,
+    required this.name,
+    this.subject = '',
+    this.description = '',
+    required this.creatorId,
+    required this.creatorUsername,
+    this.memberIds = const [],
+    this.maxMembers = 10,
+    this.schedule = '',
+    this.location = '',
+  });
+
+  factory StudyGroup.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return StudyGroup(
+      id: doc.id,
+      name: d['name'] ?? '',
+      subject: d['subject'] ?? '',
+      description: d['description'] ?? '',
+      creatorId: d['creator_id'] ?? '',
+      creatorUsername: d['creator_username'] ?? '',
+      memberIds: List<String>.from(d['member_ids'] ?? []),
+      maxMembers: d['max_members'] ?? 10,
+      schedule: d['schedule'] ?? '',
+      location: d['location'] ?? '',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  SKILL EXCHANGE MODEL
+// ─────────────────────────────────────────────
+
+class SkillExchange {
+  final String id;
+  final String userId;
+  final String username;
+  final List<String> skillsOffered;
+  final List<String> skillsWanted;
+  final String description;
+  final String status; // active | matched | closed
+
+  SkillExchange({
+    required this.id,
+    required this.userId,
+    required this.username,
+    this.skillsOffered = const [],
+    this.skillsWanted = const [],
+    this.description = '',
+    this.status = 'active',
+  });
+
+  factory SkillExchange.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return SkillExchange(
+      id: doc.id,
+      userId: d['user_id'] ?? '',
+      username: d['username'] ?? '',
+      skillsOffered: List<String>.from(d['skills_offered'] ?? []),
+      skillsWanted: List<String>.from(d['skills_wanted'] ?? []),
+      description: d['description'] ?? '',
+      status: d['status'] ?? 'active',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  COMMUNITY MODEL
+// ─────────────────────────────────────────────
+
+class Community {
+  final String id;
+  final String name;
+  final String description;
+  final String type; // department | interest | club
+  final String creatorId;
+  final List<String> memberIds;
+  final List<String> moderatorIds;
+  final String? bannerUrl;
+  final String? iconUrl;
+  final List<String> tags;
+
+  Community({
+    required this.id,
+    required this.name,
+    this.description = '',
+    this.type = 'interest',
+    required this.creatorId,
+    this.memberIds = const [],
+    this.moderatorIds = const [],
+    this.bannerUrl,
+    this.iconUrl,
+    this.tags = const [],
+  });
+
+  factory Community.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return Community(
+      id: doc.id,
+      name: d['name'] ?? '',
+      description: d['description'] ?? '',
+      type: d['type'] ?? 'interest',
+      creatorId: d['creator_id'] ?? '',
+      memberIds: List<String>.from(d['member_ids'] ?? []),
+      moderatorIds: List<String>.from(d['moderator_ids'] ?? []),
+      bannerUrl: d['banner_url'],
+      iconUrl: d['icon_url'],
+      tags: List<String>.from(d['tags'] ?? []),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  COMMUNITY POST / DISCUSSION MODEL
+// ─────────────────────────────────────────────
+
+class CommunityPost {
+  final String id;
+  final String communityId;
+  final String authorId;
+  final String authorUsername;
+  final String title;
+  final String content;
+  final String? mediaUrl;
+  final List<String> upvotes;
+  final List<String> downvotes;
+  final List<Comment> comments;
+  final bool isPinned;
+  final String type; // discussion | resource | poll | announcement
+
+  CommunityPost({
+    required this.id,
+    required this.communityId,
+    required this.authorId,
+    required this.authorUsername,
+    this.title = '',
+    this.content = '',
+    this.mediaUrl,
+    this.upvotes = const [],
+    this.downvotes = const [],
+    this.comments = const [],
+    this.isPinned = false,
+    this.type = 'discussion',
+  });
+
+  int get score => upvotes.length - downvotes.length;
+
+  factory CommunityPost.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return CommunityPost(
+      id: doc.id,
+      communityId: d['community_id'] ?? '',
+      authorId: d['author_id'] ?? '',
+      authorUsername: d['author_username'] ?? '',
+      title: d['title'] ?? '',
+      content: d['content'] ?? '',
+      mediaUrl: d['media_url'],
+      upvotes: List<String>.from(d['upvotes'] ?? []),
+      downvotes: List<String>.from(d['downvotes'] ?? []),
+      comments: (d['comments'] as List? ?? [])
+          .map((c) => Comment.fromJson(c as Map<String, dynamic>))
+          .toList(),
+      isPinned: d['is_pinned'] ?? false,
+      type: d['type'] ?? 'discussion',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  EVENT MODEL (Campus)
+// ─────────────────────────────────────────────
+
+class CampusEvent {
+  final String id;
+  final String title;
+  final String description;
+  final String organizerId;
+  final String organizerUsername;
+  final String type; // workshop | hackathon | seminar | sports | cultural | other
+  final String location;
+  final DateTime? startTime;
+  final DateTime? endTime;
+  final List<String> registeredUserIds;
+  final int maxCapacity;
+  final String? bannerUrl;
+  final List<String> tags;
+  final String status; // upcoming | ongoing | completed | cancelled
+
+  CampusEvent({
+    required this.id,
+    required this.title,
+    this.description = '',
+    required this.organizerId,
+    required this.organizerUsername,
+    this.type = 'other',
+    this.location = '',
+    this.startTime,
+    this.endTime,
+    this.registeredUserIds = const [],
+    this.maxCapacity = 100,
+    this.bannerUrl,
+    this.tags = const [],
+    this.status = 'upcoming',
+  });
+
+  factory CampusEvent.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return CampusEvent(
+      id: doc.id,
+      title: d['title'] ?? '',
+      description: d['description'] ?? '',
+      organizerId: d['organizer_id'] ?? '',
+      organizerUsername: d['organizer_username'] ?? '',
+      type: d['type'] ?? 'other',
+      location: d['location'] ?? '',
+      startTime: d['start_time'] != null
+          ? (d['start_time'] as Timestamp).toDate()
+          : null,
+      endTime: d['end_time'] != null
+          ? (d['end_time'] as Timestamp).toDate()
+          : null,
+      registeredUserIds: List<String>.from(d['registered_user_ids'] ?? []),
+      maxCapacity: d['max_capacity'] ?? 100,
+      bannerUrl: d['banner_url'],
+      tags: List<String>.from(d['tags'] ?? []),
+      status: d['status'] ?? 'upcoming',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  VENUE / SPORTS BOOKING MODEL
+// ─────────────────────────────────────────────
+
+class Venue {
+  final String id;
+  final String name;
+  final String type; // basketball | football | tennis | badminton | cricket | gym | pool
+  final String location;
+  final String description;
+  final double? lat;
+  final double? lng;
+  final List<String> amenities;
+  final String? imageUrl;
+
+  Venue({
+    required this.id,
+    required this.name,
+    this.type = '',
+    this.location = '',
+    this.description = '',
+    this.lat,
+    this.lng,
+    this.amenities = const [],
+    this.imageUrl,
+  });
+
+  factory Venue.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return Venue(
+      id: doc.id,
+      name: d['name'] ?? '',
+      type: d['type'] ?? '',
+      location: d['location'] ?? '',
+      description: d['description'] ?? '',
+      lat: (d['lat'] as num?)?.toDouble(),
+      lng: (d['lng'] as num?)?.toDouble(),
+      amenities: List<String>.from(d['amenities'] ?? []),
+      imageUrl: d['image_url'],
+    );
+  }
+}
+
+class VenueBooking {
+  final String id;
+  final String venueId;
+  final String venueName;
+  final String bookerId;
+  final String bookerUsername;
+  final DateTime? date;
+  final String timeSlot; // e.g. '10:00-11:00'
+  final List<String> playerIds;
+  final int maxPlayers;
+  final String sport;
+  final String status; // confirmed | pending | cancelled
+
+  VenueBooking({
+    required this.id,
+    required this.venueId,
+    required this.venueName,
+    required this.bookerId,
+    required this.bookerUsername,
+    this.date,
+    this.timeSlot = '',
+    this.playerIds = const [],
+    this.maxPlayers = 10,
+    this.sport = '',
+    this.status = 'pending',
+  });
+
+  factory VenueBooking.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return VenueBooking(
+      id: doc.id,
+      venueId: d['venue_id'] ?? '',
+      venueName: d['venue_name'] ?? '',
+      bookerId: d['booker_id'] ?? '',
+      bookerUsername: d['booker_username'] ?? '',
+      date: d['date'] != null ? (d['date'] as Timestamp).toDate() : null,
+      timeSlot: d['time_slot'] ?? '',
+      playerIds: List<String>.from(d['player_ids'] ?? []),
+      maxPlayers: d['max_players'] ?? 10,
+      sport: d['sport'] ?? '',
+      status: d['status'] ?? 'pending',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  CAMPUS LOCATION (Interactive Map)
+// ─────────────────────────────────────────────
+
+class CampusLocation {
+  final String id;
+  final String name;
+  final String category; // building | lab | library | cafeteria | sports | parking | hostel
+  final String description;
+  final double lat;
+  final double lng;
+  final String? imageUrl;
+  final String floor;
+  final String openHours;
+
+  CampusLocation({
+    required this.id,
+    required this.name,
+    this.category = 'building',
+    this.description = '',
+    required this.lat,
+    required this.lng,
+    this.imageUrl,
+    this.floor = '',
+    this.openHours = '',
+  });
+
+  factory CampusLocation.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return CampusLocation(
+      id: doc.id,
+      name: d['name'] ?? '',
+      category: d['category'] ?? 'building',
+      description: d['description'] ?? '',
+      lat: (d['lat'] as num?)?.toDouble() ?? 0,
+      lng: (d['lng'] as num?)?.toDouble() ?? 0,
+      imageUrl: d['image_url'],
+      floor: d['floor'] ?? '',
+      openHours: d['open_hours'] ?? '',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  RESOURCE SHARING MODEL
+// ─────────────────────────────────────────────
+
+class SharedResource {
+  final String id;
+  final String title;
+  final String description;
+  final String authorId;
+  final String authorUsername;
+  final String type; // notes | pdf | link | video | presentation
+  final String? fileUrl;
+  final String? linkUrl;
+  final String subject;
+  final List<String> tags;
+  final List<String> likes;
+  final int downloads;
+
+  SharedResource({
+    required this.id,
+    required this.title,
+    this.description = '',
+    required this.authorId,
+    required this.authorUsername,
+    this.type = 'notes',
+    this.fileUrl,
+    this.linkUrl,
+    this.subject = '',
+    this.tags = const [],
+    this.likes = const [],
+    this.downloads = 0,
+  });
+
+  factory SharedResource.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return SharedResource(
+      id: doc.id,
+      title: d['title'] ?? '',
+      description: d['description'] ?? '',
+      authorId: d['author_id'] ?? '',
+      authorUsername: d['author_username'] ?? '',
+      type: d['type'] ?? 'notes',
+      fileUrl: d['file_url'],
+      linkUrl: d['link_url'],
+      subject: d['subject'] ?? '',
+      tags: List<String>.from(d['tags'] ?? []),
+      likes: List<String>.from(d['likes'] ?? []),
+      downloads: d['downloads'] ?? 0,
+    );
+  }
 }

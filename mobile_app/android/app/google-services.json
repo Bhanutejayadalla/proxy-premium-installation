@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "658063319839",
-    "project_id": "proxy-6efd3",
-    "storage_bucket": "proxy-6efd3.firebasestorage.app"
+    "project_number": "526968486454",
+    "project_id": "proxi-version2",
+    "storage_bucket": "proxi-version2.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:658063319839:android:336ebeb079103164f6062a",
+        "mobilesdk_app_id": "1:526968486454:android:d574bbe9ff23d4b88af697",
         "android_client_info": {
-          "package_name": "com.example.dual_mode_app"
+          "package_name": "com.proxi.premium"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCu0iCsiPtA4X6U5zl6jwd04V8xYi-4LI8"
+          "current_key": "AIzaSyCF4O8ifagnihfbtH4TA_LlDx64LDvube0"
         }
       ],
       "services": {

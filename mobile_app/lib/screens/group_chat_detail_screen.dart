@@ -154,6 +154,11 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
               stream: Provider.of<AppState>(context, listen: false)
                   .getGroupMessages(widget.groupId),
               builder: (ctx, snap) {
+                if (snap.hasError) {
+                  return Center(
+                    child: Text("Error loading messages: ${snap.error}",
+                        style: const TextStyle(color: Colors.red)));
+                }
                 final msgs = snap.data ?? [];
                 if (msgs.isEmpty) {
                   return const Center(
@@ -163,6 +168,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                   );
                 }
                 return ListView.builder(
+                  reverse: true,
                   padding: const EdgeInsets.all(10),
                   itemCount: msgs.length,
                   itemBuilder: (ctx, i) {

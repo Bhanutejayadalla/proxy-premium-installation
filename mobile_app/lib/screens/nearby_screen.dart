@@ -19,6 +19,26 @@ class _NearbyScreenState extends State<NearbyScreen> {
   _ScanStatus _status = _ScanStatus.idle;
   String _errorMessage = '';
   final Set<String> _pendingRequests = {};
+  bool _bleAdapterOn = false;
+  bool _locationServiceOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshAdapterStatus();
+  }
+
+  Future<void> _refreshAdapterStatus() async {
+    final state = Provider.of<AppState>(context, listen: false);
+    final bleOn = await state.ble.isBluetoothOn();
+    final locOn = await state.location.requestPermission();
+    if (mounted) {
+      setState(() {
+        _bleAdapterOn = bleOn;
+        _locationServiceOn = locOn;
+      });
+    }
+  }
 
   Future<bool> _checkPermissions(DiscoveryMode mode) async {
     if (mode == DiscoveryMode.ble) {
@@ -69,6 +89,9 @@ class _NearbyScreenState extends State<NearbyScreen> {
 
   void _handleScan() async {
     final state = Provider.of<AppState>(context, listen: false);
+
+    // Refresh adapter status
+    await _refreshAdapterStatus();
 
     // Check permissions first
     final ok = await _checkPermissions(state.discoveryMode);
@@ -154,11 +177,16 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.2),
+                        color: _bleAdapterOn
+                            ? Colors.green.withValues(alpha: 0.2)
+                            : Colors.orange.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text("Offline",
-                          style: TextStyle(fontSize: 8, color: Colors.orange, fontWeight: FontWeight.bold)),
+                      child: Text(
+                          _bleAdapterOn ? "Ready" : "Off",
+                          style: TextStyle(fontSize: 8,
+                              color: _bleAdapterOn ? Colors.green : Colors.orange,
+                              fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -176,11 +204,16 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                       decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.2),
+                        color: _locationServiceOn
+                            ? Colors.green.withValues(alpha: 0.2)
+                            : Colors.orange.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text("Online",
-                          style: TextStyle(fontSize: 8, color: Colors.green, fontWeight: FontWeight.bold)),
+                      child: Text(
+                          _locationServiceOn ? "Ready" : "Off",
+                          style: TextStyle(fontSize: 8,
+                              color: _locationServiceOn ? Colors.green : Colors.orange,
+                              fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),

@@ -35,7 +35,10 @@ class UserDetailScreen extends StatelessWidget {
                         ? NetworkImage(user.getAvatar(isFormal))
                         : null,
                     child: user.getAvatar(isFormal).isEmpty
-                        ? Text(user.username[0].toUpperCase(),
+                        ? Text(
+                            user.username.isNotEmpty
+                                ? user.username[0].toUpperCase()
+                                : '?',
                             style: const TextStyle(fontSize: 36))
                         : null,
                   ),

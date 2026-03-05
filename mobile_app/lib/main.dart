@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Proxi',
+      title: 'Proxi Premium',
       theme: ThemeData(
         textTheme: GoogleFonts.interTextTheme(),
         useMaterial3: true,
@@ -49,7 +49,7 @@ class MyApp extends StatelessWidget {
                   children: [
                     Icon(Icons.people, size: 64, color: Colors.deepPurple),
                     SizedBox(height: 16),
-                    Text('Proxi',
+                    Text('Proxi Premium',
                         style: TextStyle(
                             fontSize: 28, fontWeight: FontWeight.bold)),
                     SizedBox(height: 12),

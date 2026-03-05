@@ -11,6 +11,7 @@ import 'profile_screen.dart';
 import 'notifications_screen.dart';
 import 'jobs_screen.dart';
 import 'reels_screen.dart';
+import 'campus_hub_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -144,6 +145,14 @@ class _HomeShellState extends State<HomeShell> {
 
                     const Spacer(),
 
+                    IconButton(
+                      icon: const Icon(LucideIcons.layoutGrid),
+                      tooltip: 'Campus Hub',
+                      onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const CampusHubScreen())),
+                    ),
                     IconButton(
                       icon: const Icon(LucideIcons.bell),
                       onPressed: () => Navigator.push(

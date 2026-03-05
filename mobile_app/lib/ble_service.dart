@@ -81,9 +81,12 @@ class BleService {
   }) async {
     final Map<String, BleDiscoveredUser> discoveredUsers = {};
 
-    // Stop any previous scan
+    // Stop any previous scan cleanly
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
+    // Small delay to ensure adapter resets between scans
+    await Future.delayed(const Duration(milliseconds: 500));
 
+    // Subscribe to results BEFORE starting scan to avoid missing early results
     final sub = FlutterBluePlus.scanResults.listen((results) {
       for (final r in results) {
         if (r.rssi < minRssi) continue;
@@ -103,10 +106,20 @@ class BleService {
           }
         }
       }
-    });
+    }, onError: (_) { /* ignore scan errors */ });
 
-    // Start scan
-    await FlutterBluePlus.startScan(timeout: Duration(seconds: durationSeconds));
+    // Start scan after listener is active
+    try {
+      await FlutterBluePlus.startScan(
+        timeout: Duration(seconds: durationSeconds),
+        androidUsesFineLocation: true,
+      );
+    } catch (e) {
+      await sub.cancel();
+      return [];
+    }
+
+    // Wait for the full scan window + buffer
     await Future.delayed(Duration(seconds: durationSeconds + 1));
 
     await sub.cancel();
@@ -144,6 +157,7 @@ class BleService {
     final Map<String, ScanResult> bestResults = {};
 
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 500));
 
     final sub = FlutterBluePlus.scanResults.listen((results) {
       for (final r in results) {
@@ -154,9 +168,18 @@ class BleService {
           }
         }
       }
-    });
+    }, onError: (_) { /* ignore scan errors */ });
 
-    await FlutterBluePlus.startScan(timeout: Duration(seconds: durationSeconds));
+    try {
+      await FlutterBluePlus.startScan(
+        timeout: Duration(seconds: durationSeconds),
+        androidUsesFineLocation: true,
+      );
+    } catch (e) {
+      await sub.cancel();
+      return [];
+    }
+
     await Future.delayed(Duration(seconds: durationSeconds + 1));
 
     await sub.cancel();

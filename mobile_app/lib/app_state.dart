@@ -525,8 +525,9 @@ class AppState extends ChangeNotifier {
       );
       bleProxiUsersDetected = proxiUsers.length;
 
-      // Also run a general scan for diagnostics
-      // (how many total BLE devices are nearby)
+      // Run a quick general scan for diagnostics after a small delay
+      // to avoid interfering with the Proxi scan results
+      await Future.delayed(const Duration(milliseconds: 800));
       final allDevices = await ble.scanAndCollect(
         durationSeconds: 3,
         minRssi: BleService.rssiThreshold,
@@ -539,11 +540,14 @@ class AppState extends ChangeNotifier {
       for (final bleUser in proxiUsers) {
         if (bleUser.uid == currentUser?.uid) continue;
 
-        // Try local cache first (works offline)
-        final cached = await userCache.getCachedUser(bleUser.uid);
+        // Try local cache first (works offline).
+        // bleUser.uid may be a 20-char prefix (BLE advertisement packet limit),
+        // so use prefix-aware lookup to find the full profile.
+        final cached = await userCache.getCachedUserByUidPrefix(bleUser.uid);
+        final resolvedUid = cached?['uid'] as String? ?? bleUser.uid;
         if (cached != null) {
           foundUsers.add(AppUser(
-            uid: bleUser.uid,
+            uid: resolvedUid,
             username: cached['username'] ?? 'Proxi User',
             avatarFormal: cached['avatar_formal'] ?? '',
             avatarCasual: cached['avatar_casual'] ?? '',
@@ -555,7 +559,7 @@ class AppState extends ChangeNotifier {
         } else {
           // Not in cache — show with minimal info (UID-based placeholder)
           foundUsers.add(AppUser(
-            uid: bleUser.uid,
+            uid: resolvedUid,
             username: 'Proxi User',
             bio: '~${bleUser.distanceM.toStringAsFixed(0)}m away via Bluetooth',
             distanceKm: bleUser.distanceM / 1000,
