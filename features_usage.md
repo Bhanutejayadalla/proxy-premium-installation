@@ -271,18 +271,55 @@ Tap the **Bluetooth** or **GPS** chip at the top to switch modes.
 ---
 
 ### Campus Map
-The campus map uses **OpenStreetMap** (free, no API key required).
+The campus map uses **OpenStreetMap** (free, no API key required) with full routing powered by **OSRM** (Open Source Routing Machine).
 
 #### Viewing the Map
 1. Open Campus Hub → **Campus Map**.
 2. The map loads centered on your campus (default: Hyderabad, 17.3850, 78.4867).
 3. Colored pin icons show saved locations — tap any pin or bottom card to see details.
-4. Tap **"Open in OpenStreetMap"** in the detail sheet to navigate there externally.
+4. A **blue dot** shows your current GPS position (when available).
+5. Tap **"Open OSM"** in the detail sheet to navigate there externally.
+
+#### Searching Locations
+1. Use the **search bar** at the top to find locations by name, category, or description.
+2. Matching results appear as an **autocomplete dropdown** below the search bar.
+3. Tap a result to fly to that location on the map and select it.
+4. Tap the **X** button in the search bar to clear the search.
+
+#### Distance Mode: My Location → Place
+1. Tap the **"My Location → Place"** chip (below the search bar).
+2. The chip turns active (colored). A hint says *"Tap a location marker to see the route from your position"*.
+3. Tap any marker on the map or select from the bottom card list.
+4. The app calculates the **road-based walking route** using the OSRM API.
+5. A **route polyline** is drawn on the map from your blue dot to the destination.
+6. A **result card** appears showing:
+   - Route label ("My Location → Library")
+   - Whether it's "Road-based route" or "Straight-line estimate" (fallback)
+   - **Distance** in meters or km (e.g., "1.2 km" or "850 m")
+   - **Walking time** estimate (e.g., "~14 min walk" at 5 km/h)
+7. Tap **Clear** to dismiss the route.
+
+#### Distance Mode: Place → Place
+1. Tap the **"Place → Place"** chip.
+2. Tap the **first location** (origin) — it gets a colored ring highlight.
+3. Tap the **second location** (destination) — route calculation starts.
+4. The same route polyline and result card appear as above.
+5. The label shows "Library → Cafeteria" (both named locations).
+6. Tap **Clear** or the **X** button to reset and choose new locations.
+
+#### Route Details
+- **Road-based routes** (OSRM): Solid colored polyline following actual roads/paths. Distance and time reflect real walking paths, not straight lines.
+- **Straight-line fallback**: If OSRM is unavailable, a dashed grey line shows the direct distance. Walking time is estimated at 5 km/h.
+- The map **auto-zooms** to fit the entire route when calculated.
+
+#### Quick Route from Info Sheet
+1. Tap any marker in **normal mode** (no distance mode active) to open the info sheet.
+2. Tap **"Route Here"** to instantly switch to My Location → Place mode and calculate the route.
 
 #### Adding a Location
 1. Tap the **+** icon (top right).
-2. Enter: Name, Description, Category (Academic / Food / Sports / Hostel / Library / Admin / Transport), Latitude, Longitude.
-3. Tip: Find coordinates from Google Maps → long-press a spot → copy the numbers shown.
+2. Enter: Name, Description, Category, Latitude, Longitude.
+3. If GPS is available, **lat/lng are pre-filled** with your current coordinates.
 4. Tap **Add Location** — the pin appears on the map immediately.
 
 #### Filtering by Category
@@ -298,6 +335,12 @@ The campus map uses **OpenStreetMap** (free, no API key required).
 | Cyan | Library |
 | Red | Admin |
 | Amber | Transport |
+
+#### Technical Notes
+- **OSRM API**: Uses the free public OSRM demo server (`router.project-osrm.org`) with walking profile. No API key needed.
+- **Fallback**: If OSRM is unreachable or returns an error, Haversine (great-circle) distance is used with a dashed line on the map.
+- **GPS**: Uses `geolocator` package with 15-second timeout for position acquisition.
+- **Map**: `flutter_map` + `latlong2` with OpenStreetMap tiles.
 
 ---
 
