@@ -1245,6 +1245,13 @@ class FirebaseService {
         (snap) => snap.docs.map((d) => Venue.fromFirestore(d)).toList());
   }
 
+  Future<void> addVenue(Map<String, dynamic> data) async {
+    await _db.collection('venues').add({
+      ...data,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> createVenueBooking(Map<String, dynamic> data) async {
     await _db.collection('venue_bookings').add({
       ...data,

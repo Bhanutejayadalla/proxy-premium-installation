@@ -87,6 +87,14 @@
         { "fieldPath": "members", "arrayConfig": "CONTAINS" },
         { "fieldPath": "last_timestamp", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "venue_bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "venue_id", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

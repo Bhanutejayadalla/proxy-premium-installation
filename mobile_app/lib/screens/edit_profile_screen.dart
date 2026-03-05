@@ -18,7 +18,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _skillsCtrl;
   late bool _openToWork;
   late bool _hiring;
+  late List<String> _selectedSports;
   bool _saving = false;
+
+  static const _allSports = [
+    'Basketball', 'Football', 'Tennis', 'Badminton',
+    'Cricket', 'Volleyball', 'Table Tennis', 'Swimming',
+    'Running', 'Gym', 'Yoga', 'Chess',
+  ];
 
   @override
   void initState() {
@@ -30,6 +37,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _skillsCtrl = TextEditingController(text: user.skills.join(', '));
     _openToWork = user.openToWork;
     _hiring = user.hiring;
+    _selectedSports = List<String>.from(user.sportsPreferences);
   }
 
   @override
@@ -57,6 +65,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'skills': skills,
         'open_to_work': _openToWork,
         'hiring': _hiring,
+        'sports_preferences': _selectedSports,
       });
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -152,6 +161,37 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   labelText: "Skills",
                   hintText: "Flutter, Dart, Firebase (comma separated)",
                   border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 24),
+
+            // SPORTS PREFERENCES
+            const Text('Sports Preferences',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text('Select sports you play (used for finding partners)',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 10),
+            StatefulBuilder(
+              builder: (ctx, setSportsState) => Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _allSports.map((s) {
+                  final selected = _selectedSports.contains(s);
+                  return FilterChip(
+                    label: Text(s),
+                    selected: selected,
+                    onSelected: (val) {
+                      setSportsState(() {
+                        if (val) {
+                          _selectedSports.add(s);
+                        } else {
+                          _selectedSports.remove(s);
+                        }
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
             ),
             const SizedBox(height: 24),
 

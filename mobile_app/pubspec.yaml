@@ -35,7 +35,9 @@ dependencies:
   permission_handler: ^11.0.0
   flutter_blue_plus: ^1.15.0
   geolocator: ^11.0.0
-  google_maps_flutter: ^2.5.0
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  url_launcher: ^6.2.6
 
   # Video (Phase 4)
   video_player: ^2.8.0

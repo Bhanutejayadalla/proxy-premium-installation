@@ -15,7 +15,7 @@ class VenueBookingScreen extends StatefulWidget {
 class _VenueBookingScreenState extends State<VenueBookingScreen> {
   String? _filterType;
 
-  static const sportTypes = [
+  static const _sportTypes = [
     'basketball', 'football', 'tennis', 'badminton',
     'cricket', 'volleyball', 'gym', 'pool', 'other',
   ];
@@ -36,17 +36,27 @@ class _VenueBookingScreenState extends State<VenueBookingScreen> {
             onSelected: (v) => setState(() => _filterType = v.isEmpty ? null : v),
             itemBuilder: (_) => [
               const PopupMenuItem(value: '', child: Text('All Venues')),
-              ...sportTypes.map((t) => PopupMenuItem(
+              ..._sportTypes.map((t) => PopupMenuItem(
                   value: t, child: Text(t[0].toUpperCase() + t.substring(1)))),
             ],
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showAddVenueSheet(context, state),
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        icon: const Icon(LucideIcons.plus),
+        label: const Text('Add Venue'),
       ),
       body: StreamBuilder<List<Venue>>(
         stream: state.firebase.getVenuesStream(type: _filterType),
         builder: (ctx, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('Error: ${snap.error}'));
           }
           final venues = snap.data ?? [];
           if (venues.isEmpty) {
@@ -56,23 +66,111 @@ class _VenueBookingScreenState extends State<VenueBookingScreen> {
                 children: [
                   Icon(LucideIcons.dumbbell, size: 64, color: Colors.grey.shade400),
                   const SizedBox(height: 16),
-                  Text('No venues available', style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
+                  Text('No venues yet', style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
                   const SizedBox(height: 8),
-                  const Text('Venue listings are managed by campus admin'),
+                  const Text('Tap "Add Venue" below to add one'),
                 ],
               ),
             );
           }
           return ListView.builder(
+            padding: const EdgeInsets.only(bottom: 80),
             itemCount: venues.length,
-            padding: const EdgeInsets.all(12),
             itemBuilder: (ctx, i) => _VenueCard(venue: venues[i]),
           );
         },
       ),
     );
   }
+
+  void _showAddVenueSheet(BuildContext context, AppState state) {
+    final nameCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final locationCtrl = TextEditingController();
+    final amenitiesCtrl = TextEditingController();
+    String type = 'basketball';
+    final color = state.isFormal ? AppColors.formalPrimary : AppColors.casualPrimary;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Padding(
+          padding: EdgeInsets.only(
+            left: 16, right: 16, top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Add Sports Venue',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 14),
+                TextField(controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Venue Name', border: OutlineInputBorder())),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: type,
+                  decoration: const InputDecoration(labelText: 'Sport Type', border: OutlineInputBorder()),
+                  items: _sportTypes.map((t) => DropdownMenuItem(
+                      value: t, child: Text(t[0].toUpperCase() + t.substring(1)))).toList(),
+                  onChanged: (v) => setModal(() => type = v!),
+                ),
+                const SizedBox(height: 10),
+                TextField(controller: locationCtrl,
+                    decoration: const InputDecoration(labelText: 'Location / Building', border: OutlineInputBorder())),
+                const SizedBox(height: 10),
+                TextField(controller: descCtrl, maxLines: 2,
+                    decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder())),
+                const SizedBox(height: 10),
+                TextField(controller: amenitiesCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'Amenities (comma separated)',
+                        hintText: 'Lights, Changing Room, Parking',
+                        border: OutlineInputBorder())),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      if (nameCtrl.text.trim().isEmpty) return;
+                      final amenities = amenitiesCtrl.text
+                          .split(',').map((a) => a.trim()).where((a) => a.isNotEmpty).toList();
+                      await state.firebase.addVenue({
+                        'name': nameCtrl.text.trim(),
+                        'type': type,
+                        'location': locationCtrl.text.trim(),
+                        'description': descCtrl.text.trim(),
+                        'amenities': amenities,
+                        'added_by': state.currentUser!.uid,
+                      });
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Venue added!')));
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: color, foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Add Venue'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
+
+// ─── Venue Card ───────────────────────────────────────────────────────────────
 
 class _VenueCard extends StatelessWidget {
   final Venue venue;

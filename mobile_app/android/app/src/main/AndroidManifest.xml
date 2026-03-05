@@ -34,7 +34,8 @@
         android:label="Proxi Premium"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true"> <activity
+        android:usesCleartextTraffic="true">
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
@@ -56,4 +57,16 @@
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
+
+    <!-- url_launcher: allow opening http/https/geo links in external apps -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
 </manifest>
