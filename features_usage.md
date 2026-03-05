@@ -265,14 +265,86 @@ Tap the **Bluetooth** or **GPS** chip at the top to switch modes.
 ## 13. Campus Hub
 
 ### Accessing Campus Features
-1. From the Home screen, look for the **Campus Hub** option.
-2. Browse campus-specific content: events, sports matching, skill exchanges.
+1. From the bottom navigation, tap **Nearby** or look for **Campus Hub** on the Home screen.
+2. Campus Hub contains: Sports Venues, Sports Matching, Campus Map, Skill Exchange, Study Groups, Events, and more.
 
-### Sub-features
-- **Events**: View and participate in campus events.
-- **Sports Matching**: Find people to play sports with.
-- **Skill Exchange**: Offer or request skill-sharing with nearby students.
-- **Campus Map**: View an interactive map of the campus area.
+---
+
+### Campus Map
+The campus map uses **OpenStreetMap** (free, no API key required).
+
+#### Viewing the Map
+1. Open Campus Hub → **Campus Map**.
+2. The map loads centered on your campus (default: Hyderabad, 17.3850, 78.4867).
+3. Colored pin icons show saved locations — tap any pin or bottom card to see details.
+4. Tap **"Open in OpenStreetMap"** in the detail sheet to navigate there externally.
+
+#### Adding a Location
+1. Tap the **+** icon (top right).
+2. Enter: Name, Description, Category (Academic / Food / Sports / Hostel / Library / Admin / Transport), Latitude, Longitude.
+3. Tip: Find coordinates from Google Maps → long-press a spot → copy the numbers shown.
+4. Tap **Add Location** — the pin appears on the map immediately.
+
+#### Filtering by Category
+- Tap the **filter icon** (top right) → select a category to show only those pins.
+- Select **"All Categories"** to reset.
+
+| Marker Color | Category |
+|---|---|
+| Blue | Academic |
+| Orange | Food |
+| Green | Sports |
+| Purple | Hostel |
+| Cyan | Library |
+| Red | Admin |
+| Amber | Transport |
+
+---
+
+### Sports Matching
+Find students who play the same sports as you.
+
+#### Setup (one-time)
+1. Go to **Profile → Edit Profile** (pencil icon top right).
+2. Scroll down to **Sports Preferences**.
+3. Tap the sports you play (Basketball, Football, Tennis, Badminton, Cricket, Volleyball, Table Tennis, Swimming, Running, Gym, Yoga, Chess).
+4. Tap **Save**.
+
+#### Finding Partners
+1. Open Campus Hub → **Find Sports Partners**.
+2. Tap any sport chip at the top.
+3. The list shows all users who have that sport in their preferences.
+4. Tap a user card to view their profile and send a connection request or message.
+
+> **Note**: If no partners appear, they haven't set their sports preferences yet. Ask them to update their profile.
+
+---
+
+### Sports Venues (Venue Booking)
+Book sports facilities on campus.
+
+#### Browsing Venues
+1. Open Campus Hub → **Sports Venues**.
+2. All venues are shown as cards with name, location, amenities, and type.
+3. Use the **filter icon** (top right) to show only venues of a specific sport type.
+
+#### Adding a Venue
+Any user can add a venue (not just admins):
+1. Tap the **"Add Venue"** button (bottom right).
+2. Fill in: Venue Name, Sport Type, Location/Building, Description, Amenities (comma-separated).
+3. Tap **Add Venue** — it appears in the list instantly.
+
+#### Booking a Slot
+1. Tap **"Book Slot"** on any venue card.
+2. Tap **"Select Date"** to pick a date.
+3. Choose a **Time Slot** from the dropdown (6am–8pm, hourly).
+4. Set **Max Players** (default: 10).
+5. Tap **Confirm Booking**.
+
+#### Joining an Existing Booking
+1. Tap **"Bookings"** on a venue card to see all upcoming bookings.
+2. If a booking is not full, tap **"Join"** to add yourself.
+3. A green ✓ means you're already in that booking. "Full" means it's at capacity.
 
 ---
 
