@@ -1,0 +1,262 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROXI PREMIUM — Download App</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      font-family: 'Segoe UI', sans-serif;
+      color: #fff;
+      padding: 24px;
+    }
+    .card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 24px;
+      padding: 48px 40px;
+      max-width: 440px;
+      width: 100%;
+      text-align: center;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .logo { font-size: 56px; margin-bottom: 12px; }
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: 3px;
+      background: linear-gradient(90deg, #a78bfa, #60a5fa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    .tagline {
+      font-size: 0.95rem;
+      color: rgba(255,255,255,0.55);
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+    .badges {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
+    }
+    .badge {
+      background: rgba(167,139,250,0.15);
+      border: 1px solid rgba(167,139,250,0.3);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.75rem;
+      color: #c4b5fd;
+      font-weight: 600;
+    }
+    .platform-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: rgba(255,255,255,0.35);
+      margin-bottom: 10px;
+      text-align: left;
+    }
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      color: #fff;
+      text-decoration: none;
+      font-size: 1.05rem;
+      font-weight: 700;
+      padding: 16px 32px;
+      border-radius: 50px;
+      width: 100%;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 4px 20px rgba(124,58,237,0.5);
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .download-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(124,58,237,0.7);
+    }
+    .download-btn:active { transform: scale(0.98); }
+    .download-btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(124,58,237,0.15);
+      border: 1px solid rgba(124,58,237,0.4);
+      color: #c4b5fd;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: 50px;
+      width: 100%;
+      transition: transform 0.15s, background 0.15s;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .download-btn-secondary:hover {
+      background: rgba(124,58,237,0.28);
+      transform: translateY(-1px);
+    }
+    .download-btn-debug {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(234,88,12,0.12);
+      border: 1px solid rgba(234,88,12,0.35);
+      color: #fdba74;
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 600;
+      padding: 11px 22px;
+      border-radius: 50px;
+      width: 100%;
+      transition: transform 0.15s, background 0.15s;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .download-btn-debug:hover {
+      background: rgba(234,88,12,0.22);
+      transform: translateY(-1px);
+    }
+    .download-hint {
+      font-size: 0.71rem;
+      color: rgba(255,255,255,0.3);
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .ios-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.38);
+      font-size: 1.05rem;
+      font-weight: 700;
+      padding: 16px 32px;
+      border-radius: 50px;
+      width: 100%;
+      cursor: not-allowed;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .ios-note {
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.25);
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+    .divider {
+      margin: 28px 0;
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .steps {
+      margin-top: 8px;
+      text-align: left;
+      background: rgba(255,255,255,0.04);
+      border-radius: 14px;
+      padding: 18px 22px;
+    }
+    .steps h3 {
+      font-size: 0.82rem;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #a78bfa;
+      margin-bottom: 12px;
+    }
+    .steps ol {
+      padding-left: 18px;
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.65);
+      line-height: 2;
+    }
+    .note {
+      margin-top: 18px;
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.3);
+      line-height: 1.6;
+    }
+    .version-tag {
+      display: inline-block;
+      margin-top: 24px;
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">📡</div>
+    <h1>PROXI PREMIUM</h1>
+    <p class="tagline">Enhanced Proximity-Based Social Connectivity<br>Professional &amp; Casual modes in one app</p>
+
+    <div class="badges">
+      <span class="badge">v3.0 Premium</span>
+      <span class="badge">Firebase</span>
+      <span class="badge">Cloudinary</span>
+      <span class="badge">BLE + GPS</span>
+      <span class="badge">Offline BLE</span>
+      <span class="badge">Dual Mode</span>
+      <span class="badge">Campus Hub</span>
+    </div>
+
+    <!-- ANDROID -->
+    <p class="platform-label">🤖 Android</p>
+    <a class="download-btn" href="proxi-premium.apk" download="proxi-premium.apk">
+      ⬇ Download APK &nbsp;<small style="opacity:0.75;font-weight:500;font-size:0.8em">(release · 58.4 MB · arm64)</small>
+    </a>
+    <p class="download-hint">Works on all Android phones from 2017 onward (arm64-v8a).<br>Android 5.0+ required.</p>
+
+    <hr class="divider" />
+
+    <!-- iOS -->
+    <p class="platform-label">🍎 iOS</p>
+    <div class="ios-btn">
+      ⏳ Coming Soon — TestFlight
+    </div>
+    <p class="ios-note">
+      iOS requires an Apple Developer account ($99/yr) + Mac with Xcode.<br>
+      It will be available via TestFlight when ready.
+    </p>
+
+    <!-- HOW TO INSTALL -->
+    <div class="steps">
+      <h3>How to Install (Android)</h3>
+      <ol>
+        <li>Tap <strong>Download APK</strong> above</li>
+        <li>Open your <strong>Downloads</strong> folder</li>
+        <li>Tap <code>proxi-premium.apk</code></li>
+        <li>Allow <strong>Install from Unknown Sources</strong> if prompted</li>
+        <li>Tap <strong>Install</strong> — done! 🎉</li>
+      </ol>
+    </div>
+
+    <p class="note">
+      ⚠️ Android warns about unknown sources for apps outside the Play Store.<br>
+      This is expected. The app is safe to install.<br>
+      📌 Proxi Premium installs separately from the original Proxi app.
+    </p>
+
+    <span class="version-tag">PROXI PREMIUM v3.0 · Release Build · March 2026</span>
+  </div>
+</body>
+</html>
