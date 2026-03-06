@@ -1330,7 +1330,9 @@ class FirebaseService {
     });
   }
 
-  Future<List<AppUser>> getNearbyConnections(
+  /// Returns list of nearby connections along with the connection `mode` (e.g. 'formal'|'casual').
+  /// Each item is a map: {'user': AppUser, 'mode': String, 'distanceKm': double}
+  Future<List<Map<String, dynamic>>> getNearbyConnections(
       String myUid, double myLat, double myLng,
       {double radiusKm = 10}) async {
     final connSnap = await _db
@@ -1338,17 +1340,21 @@ class FirebaseService {
         .where('status', isEqualTo: 'accepted')
         .get();
 
-    final otherUids = <String>{};
+    // Map other user uid -> mode (if multiple accepted connections exist, keep latest mode seen)
+    final otherMap = <String, String>{};
     for (final doc in connSnap.docs) {
       final data = doc.data();
-      if (data['from'] == myUid) otherUids.add(data['to']);
-      if (data['to'] == myUid) otherUids.add(data['from']);
+      final from = data['from'] as String?;
+      final to = data['to'] as String?;
+      final mode = data['mode'] as String? ?? 'casual';
+      if (from == myUid && to != null) otherMap[to] = mode;
+      if (to == myUid && from != null) otherMap[from] = mode;
     }
 
-    if (otherUids.isEmpty) return [];
+    if (otherMap.isEmpty) return [];
 
     final users = <AppUser>[];
-    final uidList = otherUids.toList();
+    final uidList = otherMap.keys.toList();
     for (var i = 0; i < uidList.length; i += 30) {
       final batch = uidList.sublist(i, (i + 30).clamp(0, uidList.length));
       final snap = await _db
@@ -1358,15 +1364,17 @@ class FirebaseService {
       users.addAll(snap.docs.map((d) => AppUser.fromFirestore(d)));
     }
 
-    return users.where((u) {
-      if (u.locationLat == null || u.locationLng == null) return false;
-      if (u.locationSharing == 'off') return false;
+    final results = <Map<String, dynamic>>[];
+    for (final u in users) {
+      if (u.locationLat == null || u.locationLng == null) continue;
+      if (u.locationSharing == 'off') continue;
       final dist = _haversineKm(myLat, myLng, u.locationLat!, u.locationLng!);
-      return dist <= radiusKm;
-    }).map((u) {
-      final dist = _haversineKm(myLat, myLng, u.locationLat!, u.locationLng!);
-      return u.copyWith(distanceKm: dist);
-    }).toList();
+      if (dist <= radiusKm) {
+        final mode = otherMap[u.uid] ?? 'casual';
+        results.add({'user': u.copyWith(distanceKm: dist), 'mode': mode, 'distanceKm': dist});
+      }
+    }
+    return results;
   }
 
   double _haversineKm(double lat1, double lng1, double lat2, double lng2) {

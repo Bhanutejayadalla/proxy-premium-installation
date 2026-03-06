@@ -32,7 +32,8 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
   // ── Data ──
   List<CampusLocation> _locations = [];
   List<UserMarker> _userMarkers = [];
-  List<AppUser> _nearbyConnections = [];
+  // Nearby connections: each item is {'user': AppUser, 'mode': String, 'distanceKm': double}
+  List<Map<String, dynamic>> _nearbyConnections = [];
   String? _filterCategory;
   bool _showConnections = true;
 
@@ -380,27 +381,53 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                     ),
                   ],
                 ),
-              // Nearby connections markers (green)
-              if (_showConnections && _nearbyConnections.isNotEmpty)
-                MarkerLayer(
-                  markers: _nearbyConnections.map((conn) => Marker(
-                    point: LatLng(conn.locationLat!, conn.locationLng!),
-                    width: 44,
-                    height: 44,
-                    child: GestureDetector(
-                      onTap: () => _showConnectionInfo(context, conn, state),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)],
-                        ),
-                        child: _buildConnectionAvatar(conn, state.isFormal),
-                      ),
-                    ),
-                  )).toList(),
+              // Nearby connections markers + connecting lines (color depends on connection mode)
+              if (_showConnections && _nearbyConnections.isNotEmpty) ...[
+                // Lines from me -> connection
+                PolylineLayer(
+                  polylines: _nearbyConnections.map((m) {
+                    final user = m['user'] as AppUser;
+                    final mode = (m['mode'] as String?) ?? 'casual';
+                    final colorLine = (mode == 'formal' || mode == 'pro')
+                        ? Colors.pink.shade400
+                        : Colors.green.shade600;
+                    return Polyline(
+                      points: [
+                        if (_currentPosition != null) _currentPosition!,
+                        LatLng(user.locationLat!, user.locationLng!),
+                      ],
+                      strokeWidth: 3.0,
+                      color: colorLine.withOpacity(0.9),
+                    );
+                  }).toList(),
                 ),
+                MarkerLayer(
+                  markers: _nearbyConnections.map((m) {
+                    final user = m['user'] as AppUser;
+                    final mode = (m['mode'] as String?) ?? 'casual';
+                    final markerColor = (mode == 'formal' || mode == 'pro')
+                        ? Colors.pink.shade400
+                        : Colors.green.shade600;
+                    return Marker(
+                      point: LatLng(user.locationLat!, user.locationLng!),
+                      width: 44,
+                      height: 44,
+                      child: GestureDetector(
+                        onTap: () => _showConnectionInfo(context, user, state),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: markerColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)],
+                          ),
+                          child: _buildConnectionAvatar(user, state.isFormal),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
               // Campus location markers (colored by category)
               MarkerLayer(
                 markers: filtered.map((loc) {
@@ -436,18 +463,40 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                   );
                 }).toList(),
               ),
-              // User custom markers (orange)
+              // User custom markers (orange) — tap to view, long-press to delete if owner
               MarkerLayer(
                 markers: filteredMarkers.map((m) => Marker(
                   point: LatLng(m.lat, m.lng),
-                  width: 40,
-                  height: 40,
+                  width: 36,
+                  height: 36,
                   child: GestureDetector(
                     onTap: () => _showUserMarkerInfo(context, m, color, state),
+                    onLongPress: () async {
+                      final isOwn = m.createdBy == state.currentUser?.uid;
+                      if (!isOwn) return;
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Delete marker?'),
+                          content: const Text('Remove this marker from the map?'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        await state.firebase.deleteUserMarker(m.id);
+                        _loadUserMarkers();
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Marker deleted')),
+                        );
+                      }
+                    },
                     child: Icon(
                       _categoryIcon(m.category),
                       color: Colors.orange.shade700,
-                      size: 30,
+                      size: 28,
                       shadows: const [Shadow(blurRadius: 4, color: Colors.black38)],
                     ),
                   ),
