@@ -1244,14 +1244,14 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: () {
+                    onPressed: () async {
                       if (titleCtrl.text.trim().isEmpty) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
                           const SnackBar(content: Text('Please enter a marker title')),
                         );
                         return;
                       }
-                      state.firebase.addUserMarker({
+                      await state.firebase.addUserMarker({
                         'createdBy': state.currentUser!.uid,
                         'title': titleCtrl.text.trim(),
                         'description': descCtrl.text.trim(),
@@ -1306,8 +1306,8 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
               if (isOwn)
                 IconButton(
                   icon: Icon(LucideIcons.trash2, color: Colors.red.shade400, size: 20),
-                  onPressed: () {
-                    state.firebase.deleteUserMarker(marker.id);
+                  onPressed: () async {
+                    await state.firebase.deleteUserMarker(marker.id);
                     Navigator.pop(context);
                     _loadUserMarkers();
                     ScaffoldMessenger.of(context).showSnackBar(
