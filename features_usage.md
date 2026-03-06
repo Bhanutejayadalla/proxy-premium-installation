@@ -336,11 +336,122 @@ The campus map uses **OpenStreetMap** (free, no API key required) with full rout
 | Red | Admin |
 | Amber | Transport |
 
+---
+
+#### User Markers (Custom Pins)
+You can drop personal orange markers anywhere on the map — only you can manage your own markers.
+
+**Adding a Marker**
+1. **Long-press** anywhere on the map (blank area, not an existing marker).
+2. A bottom sheet appears with the tap coordinates pre-filled.
+3. Enter a **Title** (required), optional **Description**, and choose a **Category**.
+4. Tap **Save Marker** — the orange pin appears on the map instantly and is saved to your account.
+
+**Viewing a Marker**
+- Tap any orange marker to open its info sheet (title, description, category, coordinates).
+- Your own markers show a **red trash icon** in the top-right of the sheet.
+
+**Deleting a Marker**
+- **Method 1**: Tap the orange marker → tap the **trash icon** in the info sheet.
+- **Method 2**: **Long-press** your own orange marker directly on the map → tap **Delete** in the confirmation dialog.
+- Other users' markers cannot be deleted by you.
+
+> **Note**: Deleted markers are removed from the map and Firestore permanently.
+
+---
+
+#### Nearby Connections on Map
+See where your accepted connections currently are on campus.
+
+1. Make sure **GPS is active** (blue dot visible).
+2. Tap the **Connections** chip (top toolbar) to toggle it on — it shows a badge with how many connections are nearby.
+3. Colored dots appear on the map at each nearby connection's last-known location:
+   - **Green** dot = Social / Casual connection
+   - **Pink** dot = Pro / Formal connection
+4. Lines are drawn from your blue dot to each connection.
+5. Tap a connection dot to see their profile card with chat and profile buttons.
+
+> Connections are only visible if they have sharing enabled and have updated their location recently.
+
+---
+
+#### Privacy Settings
+1. Tap the **shield icon** (top-right of Campus Map).
+2. Toggle **"Share my location with connections"** on or off.
+3. When disabled, your location is not shown on other users' maps.
+
+---
+
 #### Technical Notes
 - **OSRM API**: Uses the free public OSRM demo server (`router.project-osrm.org`) with walking profile. No API key needed.
 - **Fallback**: If OSRM is unreachable or returns an error, Haversine (great-circle) distance is used with a dashed line on the map.
 - **GPS**: Uses `geolocator` package with 15-second timeout for position acquisition.
 - **Map**: `flutter_map` + `latlong2` with OpenStreetMap tiles.
+
+---
+
+### Study Groups
+
+Collaborate with classmates in focused study sessions.
+
+#### Browsing Study Groups
+1. Open **Campus Hub → Study Groups**.
+2. All active study groups are shown as cards with subject, schedule, location, and member count.
+
+#### Creating a Study Group
+1. Tap the **"+ Create Group"** button (bottom-right).
+2. Fill in:
+   - **Group Name** (required)
+   - Subject, Description, Schedule (e.g. Mon/Wed 5pm), Location, Max Members
+3. Tap **Create Group** — it appears in the list immediately.
+
+#### Joining a Group
+- Tap **Join** on any group card (only visible when the group has space and you're not a member).
+- A green ✓ badge appears on your joined groups.
+
+#### Leaving a Group
+- Tap **Leave** on a group you're a member of (shown only if you are **not** the creator).
+
+#### Deleting a Group (Creator Only)
+- The group creator sees a red **Delete** button on their group card.
+- Tap **Delete** → confirm in the dialog → the group is removed permanently for all members.
+
+---
+
+### Skill Exchange
+
+Offer or seek skills from fellow students.
+
+#### Browsing Skill Exchanges
+1. Open **Campus Hub → Skill Exchange**.
+2. Active listings show the skill offered, skill wanted, and the poster.
+
+#### Posting a Skill Exchange
+1. Tap the **+** FAB.
+2. Enter: Skill you **offer**, Skill you **want**, and an optional description.
+3. Tap **Post** — your listing appears instantly.
+
+#### Closing a Listing
+- On your own listing, tap **Close** to mark it as no longer active.
+
+---
+
+### Campus Events
+
+#### Viewing Events
+1. Open **Campus Hub → Events**.
+2. Events are sorted by date (upcoming first).
+3. Tap an event card to see full details.
+
+#### Creating an Event
+1. Tap the **+** FAB.
+2. Fill in: Title, Description, Location, Start/End Time, Type (Academic, Social, Sports, etc.).
+3. Tap **Create Event**.
+
+#### Registering for an Event
+- Tap **Register** on an event card.
+- A green ✓ badge shows you're registered.
+- Tap **Unregister** to cancel your registration.
 
 ---
 
@@ -409,13 +520,41 @@ Any user can add a venue (not just admins):
 
 ## 14. Communities
 
-### Browsing Communities
-1. Look for the **Communities** option in the app.
-2. Browse or join community groups.
+Communities are topic-based groups (departments, interests, clubs) with their own discussion boards.
 
-### Participating
-- Post and interact within community-specific feeds.
-- Community content is separate from the main feed.
+### Browsing Communities
+1. Tap **Communities** from the Home screen or side menu.
+2. Use the **filter** (top-right) to show only certain types (Department, Interest, Club).
+3. Each card shows the community name, description, member count and tags.
+
+### Creating a Community
+1. Tap the **+** FAB.
+2. Fill in: Name, Description, Type (Department / Interest / Club), and optional Tags.
+3. Tap **Create** — you become the creator and first member automatically.
+
+### Joining a Community
+- On a community card, tap **Join** (shown when you're not a member).
+- You're added immediately and can see the community's full discussion board.
+
+### Posting / Discussions
+1. Open a community by tapping its card.
+2. Tap the **pencil FAB** (bottom-right) to open the post dialog.
+3. Enter a Title, Content, and choose a post type.
+4. Tap **Post** — your discussion appears at the top of the feed.
+
+### Voting on Posts
+- Tap **▲** to upvote or **▼** to downvote any discussion post.
+- Toggle between **Sort by Time** and **Sort by Votes** using the icon in the app bar.
+
+### Leaving a Community
+- Open the community detail screen.
+- Tap **Leave** in the app bar (visible to members who are **not** the creator).
+- Confirm in the dialog — you're removed from the member list.
+
+### Deleting a Community (Creator Only)
+- Open the community detail screen.
+- Tap the **trash icon** in the app bar (visible only to the creator).
+- Confirm — the community and **all its posts** are permanently deleted.
 
 ---
 

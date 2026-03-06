@@ -268,6 +268,7 @@ This repo uses its own Firebase project and Cloudinary account. To fork and run 
 
 | Version | Date | Highlights |
 |---|---|---|
+| **3.0.1 Premium** | July 2025 | Fixed Skill Exchange, Community Posts, Events filtering, Resource filtering (missing Firestore indexes); full feature audit |
 | **3.0 Premium** | March 2026 | Campus Hub, rebranded as Proxi Premium, BLE fixes |
 | **3.0** | March 2026 | Campus Hub (search, projects, communities, events, maps) |
 | **2.1** | February 2026 | Offline BLE mode, user cache, BLE advertising |
