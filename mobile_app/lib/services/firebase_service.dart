@@ -1300,6 +1300,88 @@ class FirebaseService {
   }
 
   // ═════════════════════════════════════════════
+  //  USER MARKERS (Custom Map Pins)
+  // ═════════════════════════════════════════════
+
+  Future<List<UserMarker>> getUserMarkers() async {
+    final snap = await _db.collection('user_markers').get();
+    return snap.docs.map((d) => UserMarker.fromFirestore(d)).toList();
+  }
+
+  Future<void> addUserMarker(Map<String, dynamic> data) async {
+    await _db.collection('user_markers').add({
+      ...data,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deleteUserMarker(String markerId) async {
+    await _db.collection('user_markers').doc(markerId).delete();
+  }
+
+  // ═════════════════════════════════════════════
+  //  USER LOCATION & NEARBY CONNECTIONS
+  // ═════════════════════════════════════════════
+
+  Future<void> updateUserLocation(String uid, double lat, double lng) async {
+    await _db.collection('users').doc(uid).update({
+      'location': {'lat': lat, 'lng': lng},
+      'location_updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<List<AppUser>> getNearbyConnections(
+      String myUid, double myLat, double myLng,
+      {double radiusKm = 10}) async {
+    final connSnap = await _db
+        .collection('connections')
+        .where('status', isEqualTo: 'accepted')
+        .get();
+
+    final otherUids = <String>{};
+    for (final doc in connSnap.docs) {
+      final data = doc.data();
+      if (data['from'] == myUid) otherUids.add(data['to']);
+      if (data['to'] == myUid) otherUids.add(data['from']);
+    }
+
+    if (otherUids.isEmpty) return [];
+
+    final users = <AppUser>[];
+    final uidList = otherUids.toList();
+    for (var i = 0; i < uidList.length; i += 30) {
+      final batch = uidList.sublist(i, (i + 30).clamp(0, uidList.length));
+      final snap = await _db
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: batch)
+          .get();
+      users.addAll(snap.docs.map((d) => AppUser.fromFirestore(d)));
+    }
+
+    return users.where((u) {
+      if (u.locationLat == null || u.locationLng == null) return false;
+      if (u.locationSharing == 'off') return false;
+      final dist = _haversineKm(myLat, myLng, u.locationLat!, u.locationLng!);
+      return dist <= radiusKm;
+    }).map((u) {
+      final dist = _haversineKm(myLat, myLng, u.locationLat!, u.locationLng!);
+      return u.copyWith(distanceKm: dist);
+    }).toList();
+  }
+
+  double _haversineKm(double lat1, double lng1, double lat2, double lng2) {
+    const R = 6371.0;
+    final dLat = (lat2 - lat1) * pi / 180;
+    final dLng = (lng2 - lng1) * pi / 180;
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1 * pi / 180) *
+            cos(lat2 * pi / 180) *
+            sin(dLng / 2) *
+            sin(dLng / 2);
+    return 2 * R * asin(sqrt(a));
+  }
+
+  // ═════════════════════════════════════════════
   //  RESOURCE SHARING
   // ═════════════════════════════════════════════
 

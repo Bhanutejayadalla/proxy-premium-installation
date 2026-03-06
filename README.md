@@ -77,7 +77,15 @@ All Campus Hub features are accessible from the **Hub** icon (grid icon) in the 
 - **Event Management**: Create workshops, hackathons, seminars, sports & cultural events with registration, capacity tracking, and type-specific icons
 - **Sports Venue Booking**: Browse venues, book time slots, join other players' bookings
 - **Sports Peer Matching**: Find peers who play the same sport on campus
-- **Interactive Campus Map**: Google Maps integration with category-filtered markers (academic, food, sports, hostel, library, admin, transport)
+- **Interactive Campus Map**: OpenStreetMap-based map with search, OSRM walking routes, distance modes, and category-filtered markers
+  - **Nearby Connections on Map**: See all connections within 10 km as green markers with profile pictures, department, skills, and quick access to profile/chat
+  - **Long-Press to Add Marker**: Long-press anywhere on the map to create a custom marker (Study Spot, Event Location, Cafe, Important Place, Custom) — coordinates captured automatically, no manual lat/lng input
+  - **OSRM Walking Routes**: Road-based walking routes with distance and estimated walking time between any two points
+  - **Distance Modes**: "My Location → Place" and "Place → Place" routing with polyline overlay
+  - **My Location Button**: One-tap GPS re-center with automatic location sharing to database
+  - **Privacy Settings**: Control location sharing — share with connections only, or hide from map entirely
+  - **Marker Management**: View, filter, and delete your custom markers; route to any marker
+  - **Edge Case Handling**: GPS permission denied banner with retry, no connections nearby states, loading indicators
 - **Resource Sharing**: Share and discover notes, previous papers, useful links, books & video resources by subject with like/download tracking
 
 ---
@@ -122,7 +130,7 @@ All Campus Hub features are accessible from the **Hub** icon (grid icon) in the 
 | **Media Storage** | Cloudinary (images, videos, PDFs) |
 | **Push Notifications** | Firebase Cloud Messaging + local notifications |
 | **BLE** | flutter_blue_plus + native Kotlin BLE advertiser |
-| **GPS/Maps** | geolocator + google_maps_flutter |
+| **GPS/Maps** | geolocator + flutter_map (OpenStreetMap) + OSRM routing |
 | **Video** | video_player, video_compress, camera |
 | **IDE** | VS Code / Android Studio |
 | **Deployment** | Firebase CLI, FlutterFire CLI |

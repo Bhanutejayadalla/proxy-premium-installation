@@ -50,6 +50,7 @@ class AppUser {
   // Privacy / Discovery
   final String visibility;
   final bool discoverable;
+  final String locationSharing; // 'connections' | 'off'
 
   AppUser({
     required this.uid,
@@ -87,6 +88,7 @@ class AppUser {
     this.fcmToken,
     this.visibility = 'public',
     this.discoverable = true,
+    this.locationSharing = 'connections',
   });
 
   factory AppUser.fromFirestore(DocumentSnapshot doc) {
@@ -127,6 +129,7 @@ class AppUser {
       fcmToken: d['fcm_token'],
       visibility: d['visibility'] ?? 'public',
       discoverable: d['discoverable'] ?? true,
+      locationSharing: d['location_sharing'] ?? 'connections',
     );
   }
 
@@ -207,6 +210,7 @@ class AppUser {
     String? fcmToken,
     String? visibility,
     bool? discoverable,
+    String? locationSharing,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -244,6 +248,7 @@ class AppUser {
       fcmToken: fcmToken ?? this.fcmToken,
       visibility: visibility ?? this.visibility,
       discoverable: discoverable ?? this.discoverable,
+      locationSharing: locationSharing ?? this.locationSharing,
     );
   }
 }
@@ -902,6 +907,46 @@ class CampusLocation {
       imageUrl: d['image_url'],
       floor: d['floor'] ?? '',
       openHours: d['open_hours'] ?? '',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  USER MARKER (Custom Map Pins)
+// ─────────────────────────────────────────────
+
+class UserMarker {
+  final String id;
+  final String createdBy;
+  final String title;
+  final String description;
+  final String category;
+  final double lat;
+  final double lng;
+  final DateTime? createdAt;
+
+  UserMarker({
+    required this.id,
+    required this.createdBy,
+    required this.title,
+    this.description = '',
+    this.category = 'custom',
+    required this.lat,
+    required this.lng,
+    this.createdAt,
+  });
+
+  factory UserMarker.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return UserMarker(
+      id: doc.id,
+      createdBy: d['createdBy'] ?? '',
+      title: d['title'] ?? '',
+      description: d['description'] ?? '',
+      category: d['category'] ?? 'custom',
+      lat: (d['lat'] as num?)?.toDouble() ?? 0,
+      lng: (d['lng'] as num?)?.toDouble() ?? 0,
+      createdAt: (d['createdAt'] as Timestamp?)?.toDate(),
     );
   }
 }

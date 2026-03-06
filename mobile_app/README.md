@@ -57,6 +57,12 @@ No self-hosted backend required. All operations use Firebase SDKs directly from 
 - `notifications` — Social interaction alerts
 - `jobs` — Job postings (formal mode)
 - `connections` — Connection requests and statuses
+- `campus_locations` — Shared campus POI markers
+- `user_markers` — Custom user-created map markers
+- `venues` — Sports venue listings
+- `venue_bookings` — Venue time slot bookings
+- `events` — Campus events
+- `shared_resources` — Study resources
 
 ### **Frontend (Flutter)**
 

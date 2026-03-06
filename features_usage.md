@@ -344,6 +344,22 @@ The campus map uses **OpenStreetMap** (free, no API key required) with full rout
 
 ---
 
+**Database Mapping**
+
+- **Users (profiles & auth):** `users` collection — stores profile fields, sports preferences, followers/following arrays, visibility and metadata.
+- **Feed & Posts:** `posts` collection — social feed posts; `reels` and `stories` collections for short-form content.
+- **Comments & Likes:** Stored as fields/arrays inside `posts`/`reels` documents (e.g., `comments`, `likes`).
+- **Chat / Messaging:** `chats` collection (chat documents) with a `messages` subcollection per chat for individual messages.
+- **Notifications:** `notifications` collection — user notifications (one document per notification).
+- **Connections / Follow Requests:** `connections` collection — connection requests and statuses.
+- **Campus Map:** `campus_locations` collection — saved named locations (fields: `name`, `description`, `category`, `lat`, `lng`, ...).
+- **Venues & Bookings:** `venues` collection (venue records) and `venue_bookings` collection (bookings/reservations for venues).
+- **Events / Registrations:** `events` collection — event records and registered user ids.
+- **Shared Resources:** `shared_resources` collection — resource posts, likes and download counters.
+- **Other:** any ephemeral or UI-only caches are kept client-side; files/media uploads are sent to Cloudinary (external storage) with URLs saved in Firestore documents.
+
+---
+
 ### Sports Matching
 Find students who play the same sports as you.
 

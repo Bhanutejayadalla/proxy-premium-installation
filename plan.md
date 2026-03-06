@@ -2484,5 +2484,84 @@ TOTAL: ~14 WEEKS (3.5 months)
 *Architecture: Flutter + Firebase (Firestore, Auth, Storage, FCM)*
 *Estimated completion: June 2026 (14 weeks)*
 
+---
+
+## Database & Media Storage Plan
+
+This section divides storage concerns into two domains: **Cloudinary** (media files: images, videos, thumbnails) and **Firestore** (structured metadata, indexes, small fields, and media URLs). The goals are to minimize storage growth, avoid storing binaries in Firestore, and provide deterministic cleanup and monitoring.
+
+### 1) Primary division
+- Cloudinary: media assets (avatars, post images/videos, thumbnails, venue photos, story media, chat attachments). Store `public_id` + delivery URLs in Firestore.
+- Firestore: structured documents and small metadata only (users, posts, stories, chats, notifications, venues, campus_locations, venue_bookings, shared_resources, events).
+
+### 2) Per-feature mapping (collections / storage)
+- Profiles: `users` (Firestore) + avatar/cover in Cloudinary (store `avatar_url`, `avatar_thumb`, `cloudinary_public_id`).
+- Feed / Posts / Reels / Stories: `posts`, `reels`, `stories` (Firestore) — media objects in Cloudinary; `stories` must include `expires_at`.
+- Chat attachments: `chats/{chatId}/messages` (Firestore) — attachments stored in Cloudinary; messages store `file_url`, `file_type`, `cloudinary_public_id`.
+- Campus Map: `campus_locations` (Firestore) — optional `image_url` thumbnails in Cloudinary.
+- Venues & Bookings: `venues` and `venue_bookings` (Firestore) — venue photos in Cloudinary.
+- Shared Resources: `shared_resources` (Firestore) — resource files in Cloudinary with `public_id` and preview thumbnail.
+- Notifications, connections, events, user preferences: Firestore only (no media).
+
+### 3) Immediate mitigations (implement now)
+1. Stories TTL: ensure each story doc has an `expires_at` timestamp; run a Cloud Function or scheduled job to delete expired story documents and the referenced Cloudinary assets.
+2. Client-side compression: use image/video compression on the client (`flutter_image_compress` or platform APIs) before upload (max width ~1080px; target thumbnails ~100–200KB; enforce max file size e.g., 8–12 MB for videos).
+3. Enforce quotas: limit number of images per venue/post/profile and max attachment size for chat.
+4. Save only URLs & `cloudinary_public_id` in Firestore — never binary blobs.
+5. Pre-fill and reuse: when a user replaces an avatar, delete the old Cloudinary asset (server-side) and write the new `public_id`.
+
+### 4) Automated cleanup & retention
+- Stories cleanup job (Cloud Function or scheduled script):
+  1. Query `stories` where `expires_at` < now.
+  2. For each doc, read `cloudinary_public_id` (if present) and call Cloudinary Admin API to delete the asset.
+  3. Delete Firestore doc.
+- Orphan cleanup: weekly job to list Cloudinary assets and cross-check against Firestore `cloudinary_public_id` list; delete unreferenced assets older than 7 days.
+- Chat attachments retention: policy example — auto-delete attachments older than 90 days unless `pinned_by` exists.
+
+### 5) Client-side rules & UX
+- Always generate and upload a small thumbnail variant; use that in feeds and list views. Load full-res only on demand.
+- Hash uploads client-side and detect duplicates; reuse existing `public_id` when matches found.
+- Provide a user-facing quota/error message when uploads exceed limit.
+
+### 6) Monitoring & alerts
+- Enable Cloudinary usage alerts (storage GB and bandwidth thresholds).
+- Set Firebase billing budgets and alerts (Firestore and Storage usage thresholds).
+- Add a daily job that logs:
+  - total Cloudinary assets count
+  - total GB used
+  - top N largest assets
+  - number of Firestore docs per heavy collection (`posts`, `chats`, `shared_resources`, `campus_locations`)
+  Send alerts (email/Slack) when > 70% of planned threshold.
+
+### 7) Small scripts / API examples (implement on server-side only)
+- Delete Cloudinary asset (use SDK server-side):
+```bash
+# Using Cloudinary Admin API (pseudo)
+curl -X POST "https://api.cloudinary.com/v1_1/<cloud_name>/resources/image/upload" \
+  -u "$CLOUDINARY_API_KEY:$CLOUDINARY_API_SECRET" \
+  -d "public_id=<public_id>" \
+  -d "invalidate=true"
+```
+
+- List expired stories (Firestore example pseudocode):
+  1. Query `stories` where `expires_at` < now.
+  2. For each doc: delete Cloudinary asset then delete doc.
+
+### 8) Priority action plan (concrete next steps)
+1. Implement stories TTL cleanup Cloud Function (high priority).
+2. Add client-side compression + thumbnail generation (high priority).
+3. Add Cloudinary `public_id` to all media writes (medium priority).
+4. Implement orphan asset scanner (weekly job) and deletion policy (medium priority).
+5. Add monitoring/alerts (low–medium priority).
+
+### 9) Suggested responsibilities and schedule
+- Week 1: Client-side compression + thumbnailing; enforce upload limits.
+- Week 2: Implement stories TTL cleanup function and orphan cleaner.
+- Week 3: Add monitoring dashboards and budget alerts.
+
+---
+
+If you want, I can now: (A) scaffold the Cloud Function to clean expired stories and delete Cloudinary assets, (B) add client-side compression + thumbnail code in the Flutter upload flow, or (C) produce example Firestore document schemas for the key collections. Which should I implement next?
+
 
 
