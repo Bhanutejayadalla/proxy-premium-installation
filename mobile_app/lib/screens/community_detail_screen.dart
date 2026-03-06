@@ -19,7 +19,9 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
     final color = state.isFormal ? AppColors.formalPrimary : AppColors.casualPrimary;
-    final isMember = widget.community.memberIds.contains(state.currentUser?.uid);
+    final uid = state.currentUser?.uid;
+    final isMember = widget.community.memberIds.contains(uid);
+    final isCreator = widget.community.creatorId == uid;
 
     return Scaffold(
       appBar: AppBar(
@@ -34,8 +36,19 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
           ),
           if (!isMember)
             TextButton(
-              onPressed: () => state.firebase.joinCommunity(widget.community.id, state.currentUser!.uid),
+              onPressed: () => state.firebase.joinCommunity(widget.community.id, uid!),
               child: const Text('Join', style: TextStyle(color: Colors.white)),
+            ),
+          if (isMember && !isCreator)
+            TextButton(
+              onPressed: () => _confirmLeave(context, state, uid!),
+              child: const Text('Leave', style: TextStyle(color: Colors.white)),
+            ),
+          if (isCreator)
+            IconButton(
+              icon: const Icon(LucideIcons.trash2),
+              tooltip: 'Delete Community',
+              onPressed: () => _confirmDelete(context, state),
             ),
         ],
       ),
@@ -116,6 +129,50 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
                 );
               },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmLeave(BuildContext context, AppState state, String uid) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave Community'),
+        content: Text('Leave "${widget.community.name}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await state.firebase.leaveCommunity(widget.community.id, uid);
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Leave', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context, AppState state) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Community'),
+        content: Text(
+          'Permanently delete "${widget.community.name}" and all its posts? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await state.firebase.deleteCommunity(widget.community.id);
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),

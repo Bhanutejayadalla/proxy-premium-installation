@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
@@ -9,10 +10,16 @@ import 'package:path/path.dart' as p;
 ///   1. Create a free account at https://cloudinary.com
 ///   2. Go to Settings → Upload → Add upload preset → Signing Mode: Unsigned
 ///   3. Fill in [cloudName] and [uploadPreset] below.
+///   4. For deletion support, also fill in [apiKey] and [apiSecret]
+///      from Cloudinary Dashboard → Settings → Access Keys.
 class CloudinaryService {
   // ── FILL THESE IN from your Cloudinary Dashboard / Settings ──
   static const String cloudName = 'ds9dmq1ob';       // e.g. 'dxyz1234abc'
   static const String uploadPreset = 'proxi-social';  // e.g. 'proxi_unsigned'
+
+  // ── For deletion (Settings → Access Keys) ──
+  static const String apiKey = '';      // e.g. '123456789012345'
+  static const String apiSecret = '';   // e.g. 'abcDEFghiJKLmno_pqrSTU'
 
   static const int maxVideoSizeMB = 100; // Cloudinary free-tier limit
 
@@ -85,5 +92,81 @@ class CloudinaryService {
 
     final json = jsonDecode(body);
     return json['secure_url'] as String;
+  }
+
+  /// Extract the Cloudinary public_id from a full Cloudinary URL.
+  ///
+  /// e.g. "https://res.cloudinary.com/ds9dmq1ob/image/upload/v123/uploads/uid/avatar.jpg"
+  ///   → "uploads/uid/avatar"
+  static String? extractPublicId(String url) {
+    try {
+      final uri = Uri.parse(url);
+      if (!uri.host.contains('cloudinary.com')) return null;
+      // Path: /{cloudName}/{resourceType}/upload/{version?}/{public_id}.{ext}
+      final segments = uri.pathSegments; // ['ds9dmq1ob', 'image', 'upload', 'v123', 'uploads', 'uid', 'avatar.jpg']
+      final uploadIdx = segments.indexOf('upload');
+      if (uploadIdx < 0) return null;
+      var remaining = segments.sublist(uploadIdx + 1);
+      // Skip version segment (starts with 'v' followed by digits)
+      if (remaining.isNotEmpty && RegExp(r'^v\d+$').hasMatch(remaining.first)) {
+        remaining = remaining.sublist(1);
+      }
+      if (remaining.isEmpty) return null;
+      final joined = remaining.join('/');
+      // Strip file extension
+      return p.withoutExtension(joined);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Determine the Cloudinary resource_type from a URL ('image', 'video', or 'raw').
+  static String _resourceTypeFromUrl(String url) {
+    final uri = Uri.parse(url);
+    final segments = uri.pathSegments;
+    if (segments.length > 1) {
+      final rt = segments[1]; // index 0 = cloudName, index 1 = resource_type
+      if (rt == 'video' || rt == 'raw') return rt;
+    }
+    return 'image';
+  }
+
+  /// Delete a Cloudinary asset by its full URL.
+  ///
+  /// Requires [apiKey] and [apiSecret] to be filled in.
+  /// Silently skips deletion if credentials are not configured.
+  Future<void> deleteFile(String url) async {
+    if (apiKey.isEmpty || apiSecret.isEmpty) return; // credentials not set
+
+    final publicId = extractPublicId(url);
+    if (publicId == null || publicId.isEmpty) return;
+
+    final resourceType = _resourceTypeFromUrl(url);
+    final timestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+
+    // Signature: SHA1("public_id={id}&timestamp={ts}{apiSecret}")
+    final toSign = 'public_id=$publicId&timestamp=$timestamp$apiSecret';
+    final signature = sha1.convert(utf8.encode(toSign)).toString();
+
+    final endpoint = 'https://api.cloudinary.com/v1_1/$cloudName/$resourceType/destroy';
+    try {
+      final response = await http.post(
+        Uri.parse(endpoint),
+        body: {
+          'public_id': publicId,
+          'api_key': apiKey,
+          'timestamp': timestamp,
+          'signature': signature,
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        // Non-fatal — log only
+        // ignore: avoid_print
+        print('[Cloudinary] deleteFile failed (${response.statusCode}): ${response.body}');
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[Cloudinary] deleteFile error: $e');
+    }
   }
 }

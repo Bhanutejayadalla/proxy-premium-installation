@@ -191,14 +191,29 @@ class FirebaseService {
   }
 
   Future<void> deletePost(String postId) async {
+    final doc = await _db.collection('posts').doc(postId).get();
+    final mediaUrl = doc.data()?['media_url'] as String?;
+    if (mediaUrl != null && mediaUrl.isNotEmpty) {
+      await _storage.deleteFile(mediaUrl);
+    }
     await _db.collection('posts').doc(postId).delete();
   }
 
   Future<void> deleteReel(String reelId) async {
+    final doc = await _db.collection('reels').doc(reelId).get();
+    final mediaUrl = doc.data()?['media_url'] as String?;
+    if (mediaUrl != null && mediaUrl.isNotEmpty) {
+      await _storage.deleteFile(mediaUrl);
+    }
     await _db.collection('reels').doc(reelId).delete();
   }
 
   Future<void> deleteStory(String storyId) async {
+    final doc = await _db.collection('stories').doc(storyId).get();
+    final mediaUrl = doc.data()?['media_url'] as String?;
+    if (mediaUrl != null && mediaUrl.isNotEmpty) {
+      await _storage.deleteFile(mediaUrl);
+    }
     await _db.collection('stories').doc(storyId).delete();
   }
 
@@ -1082,6 +1097,10 @@ class FirebaseService {
     });
   }
 
+  Future<void> deleteStudyGroup(String groupId) async {
+    await _db.collection('study_groups').doc(groupId).delete();
+  }
+
   // ═════════════════════════════════════════════
   //  SKILL EXCHANGE
   // ═════════════════════════════════════════════
@@ -1140,6 +1159,22 @@ class FirebaseService {
     await _db.collection('communities').doc(communityId).update({
       'member_ids': FieldValue.arrayRemove([uid]),
     });
+  }
+
+  /// Delete a community and all its posts. Only the creator should call this.
+  Future<void> deleteCommunity(String communityId) async {
+    // Delete all posts in this community first
+    final posts = await _db.collection('community_posts')
+        .where('community_id', isEqualTo: communityId)
+        .get();
+    for (final doc in posts.docs) {
+      final mediaUrl = doc.data()['media_url'] as String?;
+      if (mediaUrl != null && mediaUrl.isNotEmpty) {
+        await _storage.deleteFile(mediaUrl);
+      }
+      await doc.reference.delete();
+    }
+    await _db.collection('communities').doc(communityId).delete();
   }
 
   // ═════════════════════════════════════════════

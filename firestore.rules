@@ -203,5 +203,16 @@ service cloud.firestore {
       allow delete: if isSignedIn()
                     && resource.data.uploader_id == request.auth.uid;
     }
+
+    // ── User Markers (Custom Map Pins) ────────────────────────
+    match /user_markers/{markerId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn()
+                    && resource.data.createdBy == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.createdBy == request.auth.uid;
+    }
   }
 }

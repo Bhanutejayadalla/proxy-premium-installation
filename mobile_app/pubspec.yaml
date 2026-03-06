@@ -19,6 +19,7 @@ dependencies:
   # File Upload (Cloudinary - free alternative to Firebase Storage)
   http: ^1.2.0
   path: ^1.8.0
+  crypto: ^3.0.3
 
   # Local Storage
   shared_preferences: ^2.2.0

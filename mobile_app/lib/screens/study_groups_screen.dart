@@ -126,6 +126,18 @@ class StudyGroupsScreen extends StatelessWidget {
                               ),
                               child: const Text('Leave'),
                             ),
+                          if (g.creatorId == state.currentUser?.uid)
+                            OutlinedButton.icon(
+                              onPressed: () => _confirmDeleteGroup(ctx, state, g),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              icon: const Icon(LucideIcons.trash2, size: 14),
+                              label: const Text('Delete'),
+                            ),
                           if (isMember)
                             const Padding(
                               padding: EdgeInsets.only(left: 8),
@@ -140,6 +152,26 @@ class StudyGroupsScreen extends StatelessWidget {
             },
           );
         },
+      ),
+    );
+  }
+
+  void _confirmDeleteGroup(BuildContext context, AppState state, StudyGroup g) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Study Group'),
+        content: Text('Permanently delete "${g.name}"? All members will lose access.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await state.firebase.deleteStudyGroup(g.id);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
       ),
     );
   }
