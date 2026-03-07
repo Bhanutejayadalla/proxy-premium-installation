@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../app_state.dart';
+import 'mesh_chat_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String targetUser; // display name
@@ -55,6 +56,38 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       appBar: AppBar(
         title: Text(widget.targetUser),
         actions: [
+          // ── Mesh Chat Toggle ────────────────────────────────────────────
+          Tooltip(
+            message: 'Switch to Mesh Chat (offline)',
+            child: IconButton(
+              icon: Stack(
+                alignment: Alignment.topRight,
+                children: [
+                  const Icon(Icons.bluetooth),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Colors.greenAccent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MeshChatScreen(
+                      targetUid: widget.targetUid,
+                      targetName: widget.targetUser,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // ── More options ────────────────────────────────────────────────
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) async {

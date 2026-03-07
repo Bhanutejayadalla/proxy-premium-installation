@@ -5,6 +5,7 @@ import '../app_state.dart';
 import 'chat_detail_screen.dart';
 import 'create_group_chat_screen.dart';
 import 'group_chat_detail_screen.dart';
+import 'mesh_chat_screen.dart';
 
 class ChatListScreen extends StatelessWidget {
   const ChatListScreen({super.key});
@@ -20,6 +21,37 @@ class ChatListScreen extends StatelessWidget {
         appBar: AppBar(
           title: Text("Messages (${state.isFormal ? 'Pro' : 'Social'})"),
           actions: [
+            // Mesh broadcast shortcut
+            Tooltip(
+              message: 'Mesh Broadcast (offline)',
+              child: IconButton(
+                icon: Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    const Icon(Icons.bluetooth),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.greenAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MeshChatScreen(
+                        targetUid: 'broadcast',
+                        targetName: 'Nearby Mesh Devices',
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
             IconButton(
               icon: const Icon(LucideIcons.users),
               tooltip: "New Group",

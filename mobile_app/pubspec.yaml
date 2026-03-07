@@ -23,6 +23,13 @@ dependencies:
 
   # Local Storage
   shared_preferences: ^2.2.0
+  sqflite: ^2.3.0
+
+  # Mesh / Offline
+  connectivity_plus: ^6.0.3
+  uuid: ^4.4.0
+  encrypt: ^5.0.3
+  pointycastle: ^3.7.4
 
   # UI
   google_fonts: ^6.1.0

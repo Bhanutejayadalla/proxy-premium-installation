@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../app_state.dart';
+import 'mesh_chat_screen.dart';
 
 class GroupChatDetailScreen extends StatefulWidget {
   final String groupId;
@@ -65,6 +66,41 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           ],
         ),
         actions: [
+          // ── Mesh Chat Toggle ──────────────────────────────────────────────
+          Tooltip(
+            message: 'Open Mesh Chat (offline)',
+            child: IconButton(
+              icon: Stack(
+                alignment: Alignment.topRight,
+                children: [
+                  const Icon(Icons.bluetooth),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Colors.greenAccent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ),
+              onPressed: () {
+                // Group mesh: broadcast to all group members; open a
+                // group-aware mesh screen. For now, use the group name
+                // as the "room" identifier so messages fan-out.
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MeshChatScreen(
+                      targetUid: widget.groupId,
+                      targetName: '${widget.groupName} (mesh)',
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // ── More options ──────────────────────────────────────────────────
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) async {

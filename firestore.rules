@@ -68,6 +68,19 @@ service cloud.firestore {
       }
     }
 
+    // ── Mesh Messages (offline-first, cloud-synced) ───────────
+    match /mesh_messages/{msgId} {
+      // Only sender or receiver may read
+      allow read: if isSignedIn()
+                  && (resource.data.sender_id == request.auth.uid
+                      || resource.data.receiver_id == request.auth.uid);
+      // Only the sender may upload their own messages
+      allow create: if isSignedIn()
+                    && request.resource.data.sender_id == request.auth.uid;
+      // Nobody can modify or delete synced messages
+      allow update, delete: if false;
+    }
+
     // ── Group Chats & Messages ────────────────────────────────
     match /group_chats/{groupId} {
       allow read, create, update: if isSignedIn();

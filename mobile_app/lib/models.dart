@@ -457,6 +457,97 @@ class Job {
 //  CONNECTION MODEL (Phase 6)
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+//  MESH MESSAGE MODEL
+// ─────────────────────────────────────────────
+
+/// Delivery status for offline mesh messages.
+enum MeshDeliveryStatus { pending, relayed, delivered, synced }
+
+/// A message sent over the BLE mesh network (offline-first).
+/// Stored locally in SQLite and synced to Firebase when online.
+class MeshMessage {
+  final String messageId;
+  final String senderId;
+  final String receiverId;
+  final String messageText;
+  final DateTime timestamp;
+  MeshDeliveryStatus deliveryStatus;
+
+  /// Hop count — how many relay nodes forwarded this message.
+  final int hopCount;
+
+  /// Encrypted ciphertext (base64). Empty when not yet encrypted.
+  String encryptedPayload;
+
+  MeshMessage({
+    required this.messageId,
+    required this.senderId,
+    required this.receiverId,
+    required this.messageText,
+    required this.timestamp,
+    this.deliveryStatus = MeshDeliveryStatus.pending,
+    this.hopCount = 0,
+    this.encryptedPayload = '',
+  });
+
+  // ── SQLite serialization ──
+
+  Map<String, dynamic> toMap() => {
+        'message_id': messageId,
+        'sender_id': senderId,
+        'receiver_id': receiverId,
+        'message_text': messageText,
+        'timestamp': timestamp.millisecondsSinceEpoch,
+        'delivery_status': deliveryStatus.name,
+        'hop_count': hopCount,
+        'encrypted_payload': encryptedPayload,
+      };
+
+  factory MeshMessage.fromMap(Map<String, dynamic> m) => MeshMessage(
+        messageId: m['message_id'] as String,
+        senderId: m['sender_id'] as String,
+        receiverId: m['receiver_id'] as String,
+        messageText: m['message_text'] as String,
+        timestamp:
+            DateTime.fromMillisecondsSinceEpoch(m['timestamp'] as int),
+        deliveryStatus: MeshDeliveryStatus.values.firstWhere(
+          (e) => e.name == m['delivery_status'],
+          orElse: () => MeshDeliveryStatus.pending,
+        ),
+        hopCount: (m['hop_count'] as int?) ?? 0,
+        encryptedPayload: (m['encrypted_payload'] as String?) ?? '',
+      );
+
+  // ── Firebase serialization ──
+
+  Map<String, dynamic> toFirestore() => {
+        'message_id': messageId,
+        'sender_id': senderId,
+        'receiver_id': receiverId,
+        'message_text': messageText,
+        'timestamp': timestamp.millisecondsSinceEpoch,
+        'delivery_status': 'synced',
+        'hop_count': hopCount,
+        'source': 'mesh',
+      };
+
+  factory MeshMessage.fromFirestore(Map<String, dynamic> d) => MeshMessage(
+        messageId: d['message_id'] as String? ?? '',
+        senderId: d['sender_id'] as String? ?? '',
+        receiverId: d['receiver_id'] as String? ?? '',
+        messageText: d['message_text'] as String? ?? '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+            (d['timestamp'] as int?) ?? 0),
+        deliveryStatus: MeshDeliveryStatus.synced,
+        hopCount: (d['hop_count'] as int?) ?? 0,
+      );
+}
+
+// ─────────────────────────────────────────────
+//  CONNECTION MODEL
+// ─────────────────────────────────────────────
+
 class Connection {
   final String id;
   final String from;

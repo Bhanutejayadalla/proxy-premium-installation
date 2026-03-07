@@ -6,6 +6,8 @@ import 'services/auth_service.dart';
 import 'services/ble_advertiser_service.dart';
 import 'services/firebase_service.dart';
 import 'services/location_service.dart';
+import 'services/mesh_service.dart';
+import 'services/mesh_sync_service.dart';
 import 'services/notification_service.dart';
 import 'services/user_cache_service.dart';
 import 'ble_service.dart';
@@ -20,6 +22,10 @@ class AppState extends ChangeNotifier {
   final BleAdvertiserService bleAdvertiser = BleAdvertiserService();
   final LocationService location = LocationService();
   final UserCacheService userCache = UserCacheService();
+
+  /// Mesh networking — BLE-based offline chat.
+  final MeshService meshService = MeshService();
+  final MeshSyncService _meshSync = MeshSyncService();
 
   AppUser? currentUser;
   bool isFormal = true;
@@ -193,6 +199,12 @@ class AppState extends ChangeNotifier {
   void _startListeners() {
     _stopListeners();
 
+    // ── Mesh networking init ──────────────────────────────────────────────────
+    if (currentUser != null) {
+      meshService.init(currentUser!.uid);
+      _meshSync.startWatching(currentUser!.uid);
+    }
+
     // Track accepted connections — needed for visibility filtering
     if (currentUser != null) {
       // Live profile listener — keeps followers/following/avatar in sync
@@ -351,6 +363,9 @@ class AppState extends ChangeNotifier {
     _receivedRequestsSub?.cancel();
     _profileSub?.cancel();
     _notifSub?.cancel();
+    // Stop mesh scanning and Firebase sync watcher
+    meshService.stop();
+    _meshSync.stopWatching();
   }
 
   /// Manual refresh (pull-to-refresh) — re-subscribe.
@@ -493,7 +508,7 @@ class AppState extends ChangeNotifier {
       if (Platform.isAndroid) {
         final advPerm = await Permission.bluetoothAdvertise.request();
         if (!advPerm.isGranted) {
-          debugPrint('[BLE] BLUETOOTH_ADVERTISE permission not granted (${advPerm}) — device will not be visible to others');
+          debugPrint('[BLE] BLUETOOTH_ADVERTISE permission not granted ($advPerm) — device will not be visible to others');
           isBleAdvertising = false;
           notifyListeners();
           return;
