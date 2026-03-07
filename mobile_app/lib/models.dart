@@ -47,6 +47,9 @@ class AppUser {
   // Phase 5: Push
   final String? fcmToken;
 
+  // Contact
+  final String phoneNumber;
+
   // Privacy / Discovery
   final String visibility;
   final bool discoverable;
@@ -86,6 +89,7 @@ class AppUser {
     this.locationLng,
     this.distanceKm,
     this.fcmToken,
+    this.phoneNumber = '',
     this.visibility = 'public',
     this.discoverable = true,
     this.locationSharing = 'connections',
@@ -127,6 +131,7 @@ class AppUser {
       locationLat: loc != null ? (loc['lat'] as num?)?.toDouble() : null,
       locationLng: loc != null ? (loc['lng'] as num?)?.toDouble() : null,
       fcmToken: d['fcm_token'],
+      phoneNumber: d['phone_number'] ?? '',
       visibility: d['visibility'] ?? 'public',
       discoverable: d['discoverable'] ?? true,
       locationSharing: d['location_sharing'] ?? 'connections',

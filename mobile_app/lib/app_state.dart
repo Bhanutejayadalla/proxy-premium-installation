@@ -87,12 +87,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String?> register(
-      String email, String password, String username) async {
+      String email, String password, String username, String phoneNumber) async {
     try {
       final cred = await auth.signUp(email, password);
       await firebase.createUserProfile(cred.user!.uid, {
         'username': username,
         'email': email,
+        'phone_number': phoneNumber,
         'bio': '',
         'avatar_formal': '',
         'avatar_casual': '',
@@ -107,6 +108,34 @@ class AppState extends ChangeNotifier {
       syncUserCacheFromFirestore();
       notifyListeners();
       return null; // success
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Called after signing in with a phone credential — sets up the session.
+  /// Firebase phone sign-in returns the same UID as the email/password account
+  /// because the phone is linked to it during registration. If no Firestore
+  /// profile exists for the resulting UID (orphan phone-only Firebase account),
+  /// we sign out immediately so the two credentials stay bound to one account.
+  Future<String?> loginWithPhone(dynamic cred) async {
+    try {
+      final user = cred.user;
+      if (user == null) return 'Authentication failed';
+      final profile = await firebase.getUser(user.uid);
+      if (profile == null) {
+        // Sign out the orphan Firebase Auth session so it doesn't linger.
+        await auth.signOut();
+        return 'No account found for this phone number. '
+            'Please register with your email and phone first.';
+      }
+      currentUser = profile;
+      _startListeners();
+      _registerFcmToken();
+      startBleAdvertising();
+      syncUserCacheFromFirestore();
+      notifyListeners();
+      return null;
     } catch (e) {
       return e.toString();
     }

@@ -70,7 +70,10 @@ service cloud.firestore {
 
     // ── Group Chats & Messages ────────────────────────────────
     match /group_chats/{groupId} {
-      allow read, create, update, delete: if isSignedIn();
+      allow read, create, update: if isSignedIn();
+      // Only the creator of the group can delete the whole group chat
+      allow delete: if isSignedIn()
+                    && resource.data.creator == request.auth.uid;
 
       match /messages/{messageId} {
         allow read, create, delete: if isSignedIn();

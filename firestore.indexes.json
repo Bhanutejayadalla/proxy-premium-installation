@@ -101,7 +101,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        { "fieldPath": "timestamp", "order": "DESCENDING" } 
       ]
     },
     {
@@ -125,6 +125,29 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "subject", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "domain", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "study_groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "creator_id", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
         { "fieldPath": "timestamp", "order": "DESCENDING" }
       ]
     }

@@ -8,11 +8,13 @@ import '../app_state.dart';
 class GroupChatDetailScreen extends StatefulWidget {
   final String groupId;
   final String groupName;
+  final String creatorUid;
 
   const GroupChatDetailScreen({
     super.key,
     required this.groupId,
     required this.groupName,
+    this.creatorUid = '',
   });
 
   @override
@@ -49,6 +51,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
     final myUid = state.currentUser?.uid ?? '';
+    final isCreator = myUid == widget.creatorUid;
 
     return Scaffold(
       appBar: AppBar(
@@ -131,17 +134,18 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                   ],
                 ),
               ),
-              const PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_forever, color: Colors.red, size: 20),
-                    SizedBox(width: 8),
-                    Text("Delete Group",
-                        style: TextStyle(color: Colors.red)),
-                  ],
+              if (isCreator)
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_forever, color: Colors.red, size: 20),
+                      SizedBox(width: 8),
+                      Text("Delete Group",
+                          style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
                 ),
-              ),
             ],
           ),
         ],
@@ -218,17 +222,19 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (!isMe)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Text(sender,
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: isMe
-                                              ? Colors.white70
-                                              : Colors.black54)),
+                              // Always show sender name in group chat
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  isMe ? 'You' : sender,
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isMe
+                                          ? Colors.white70
+                                          : Colors.indigo.shade400),
                                 ),
+                              ),
                               if (m['file_url'] != null)
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 5),

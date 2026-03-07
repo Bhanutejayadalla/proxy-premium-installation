@@ -86,6 +86,25 @@ class _ProjectCard extends StatelessWidget {
   final Project project;
   const _ProjectCard({required this.project});
 
+  void _confirmDelete(BuildContext context, AppState state) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Project'),
+        content: Text('Permanently delete "${project.title}"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await state.firebase.deleteProject(project.id);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context, listen: false);
@@ -205,6 +224,18 @@ class _ProjectCard extends StatelessWidget {
                   const Chip(label: Text('Member', style: TextStyle(fontSize: 12)),
                       avatar: Icon(Icons.check_circle, size: 16, color: Colors.green),
                       visualDensity: VisualDensity.compact),
+                if (isCreator)
+                  OutlinedButton.icon(
+                    onPressed: () => _confirmDelete(context, state),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(LucideIcons.trash2, size: 14),
+                    label: const Text('Delete'),
+                  ),
               ],
             ),
             // If creator, show applicant management

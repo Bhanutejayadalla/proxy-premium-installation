@@ -1065,6 +1065,10 @@ class FirebaseService {
     await _db.collection('projects').doc(projectId).update({'status': status});
   }
 
+  Future<void> deleteProject(String projectId) async {
+    await _db.collection('projects').doc(projectId).delete();
+  }
+
   // ═════════════════════════════════════════════
   //  STUDY GROUPS
   // ═════════════════════════════════════════════

@@ -229,7 +229,9 @@ class _GroupChatsTab extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                       builder: (_) => GroupChatDetailScreen(
-                          groupId: g['id'], groupName: name))),
+                          groupId: g['id'],
+                          groupName: name,
+                          creatorUid: (g['creator'] ?? '') as String))),
             );
           },
         );
