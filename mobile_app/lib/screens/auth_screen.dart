@@ -96,10 +96,12 @@ class _AuthScreenState extends State<AuthScreen> {
     final err =
         await state.login(_emailCtrl.text.trim(), _passCtrl.text.trim());
     if (err == null) await _saveCredentials();
-    if (mounted) setState(() {
-      _loading = false;
-      _error = err;
-    });
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _error = err;
+      });
+    }
   }
 
   // ─── REGISTER ────────────────────────────────────────────────────────────
@@ -128,10 +130,12 @@ class _AuthScreenState extends State<AuthScreen> {
     );
 
     if (err != null) {
-      if (mounted) setState(() {
-        _loading = false;
-        _error = err;
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = err;
+        });
+      }
       return;
     }
 
@@ -195,10 +199,12 @@ class _AuthScreenState extends State<AuthScreen> {
       if (mounted) setState(() => _loading = false);
       // AppState auth-stream handles home navigation automatically
     } catch (_) {
-      if (mounted) setState(() {
-        _loading = false;
-        _error = 'Invalid OTP. Please try again.';
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Invalid OTP. Please try again.';
+        });
+      }
     }
   }
 
@@ -229,10 +235,12 @@ class _AuthScreenState extends State<AuthScreen> {
             });
           }
         } catch (e) {
-          if (mounted) setState(() {
-            _loading = false;
-            _error = e.toString();
-          });
+          if (mounted) {
+            setState(() {
+              _loading = false;
+              _error = e.toString();
+            });
+          }
         }
       },
       onCodeSent: (String vId, int? _) {
@@ -246,10 +254,12 @@ class _AuthScreenState extends State<AuthScreen> {
         }
       },
       onFailed: (FirebaseAuthException e) {
-        if (mounted) setState(() {
-          _loading = false;
-          _error = 'Verification failed: ${e.message}';
-        });
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = 'Verification failed: ${e.message}';
+          });
+        }
       },
     );
   }
@@ -277,10 +287,12 @@ class _AuthScreenState extends State<AuthScreen> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() {
-        _loading = false;
-        _error = 'Invalid OTP. Please try again.';
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Invalid OTP. Please try again.';
+        });
+      }
     }
   }
 
@@ -407,7 +419,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   List<Widget> _buildOtpStep() {
     return [
-      Icon(Icons.sms_outlined, size: 56, color: AppColors.formalPrimary),
+      const Icon(Icons.sms_outlined, size: 56, color: AppColors.formalPrimary),
       const SizedBox(height: 16),
       Text(
         'Enter the 6-digit code sent to\n${_phoneCtrl.text.trim()}',

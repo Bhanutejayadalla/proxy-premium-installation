@@ -51,7 +51,6 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
 
   // ── Edge cases ──
   bool _gpsPermissionDenied = false;
-  bool _loadingConnections = false;
 
   // Default campus center
   static const _defaultCenter = LatLng(17.3850, 78.4867);
@@ -99,7 +98,6 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
     if (_currentPosition == null) return;
     final state = Provider.of<AppState>(context, listen: false);
     if (state.currentUser == null) return;
-    setState(() => _loadingConnections = true);
     try {
       final connections = await state.firebase.getNearbyConnections(
         state.currentUser!.uid,
@@ -109,10 +107,9 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
       if (!mounted) return;
       setState(() {
         _nearbyConnections = connections;
-        _loadingConnections = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loadingConnections = false);
+      // ignore load failure silently
     }
   }
 
@@ -357,7 +354,7 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                           : Colors.grey.withValues(alpha: 0.6),
                       pattern: _routeResult!.isRoadBased
                           ? const StrokePattern.solid()
-                          : StrokePattern.dashed(segments: [10, 8]),
+                          : StrokePattern.dashed(segments: const [10, 8]),
                     ),
                   ],
                 ),
@@ -397,7 +394,7 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                         LatLng(user.locationLat!, user.locationLng!),
                       ],
                       strokeWidth: 3.0,
-                      color: colorLine.withOpacity(0.9),
+                      color: colorLine.withValues(alpha: 0.9),
                     );
                   }).toList(),
                 ),
@@ -474,6 +471,7 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                     onLongPress: () async {
                       final isOwn = m.createdBy == state.currentUser?.uid;
                       if (!isOwn) return;
+                      final messenger = ScaffoldMessenger.of(context);
                       final confirm = await showDialog<bool>(
                         context: context,
                         builder: (ctx) => AlertDialog(
@@ -488,9 +486,11 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                       if (confirm == true) {
                         await state.firebase.deleteUserMarker(m.id);
                         _loadUserMarkers();
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Marker deleted')),
-                        );
+                        if (mounted) {
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('Marker deleted')),
+                          );
+                        }
                       }
                     },
                     child: Icon(
@@ -1178,7 +1178,6 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
     final descCtrl = TextEditingController();
     String category = 'custom';
     final state = Provider.of<AppState>(context, listen: false);
-    final color = state.isFormal ? AppColors.formalPrimary : AppColors.casualPrimary;
 
     showModalBottomSheet(
       context: context,
@@ -1228,7 +1227,7 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                     )),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: category,
+                  initialValue: category,
                   decoration: const InputDecoration(
                     labelText: 'Category',
                     border: OutlineInputBorder(),
@@ -1251,6 +1250,8 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                         );
                         return;
                       }
+                      final messenger = ScaffoldMessenger.of(context);
+                      final nav = Navigator.of(ctx);
                       await state.firebase.addUserMarker({
                         'createdBy': state.currentUser!.uid,
                         'title': titleCtrl.text.trim(),
@@ -1259,9 +1260,9 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                         'lat': point.latitude,
                         'lng': point.longitude,
                       });
-                      Navigator.pop(ctx);
+                      nav.pop();
                       _loadUserMarkers();
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('Marker added!')),
                       );
                     },
@@ -1307,10 +1308,12 @@ class _CampusMapScreenState extends State<CampusMapScreen> {
                 IconButton(
                   icon: Icon(LucideIcons.trash2, color: Colors.red.shade400, size: 20),
                   onPressed: () async {
+                    final navigator = Navigator.of(context);
+                    final messenger = ScaffoldMessenger.of(context);
                     await state.firebase.deleteUserMarker(marker.id);
-                    Navigator.pop(context);
+                    navigator.pop();
                     _loadUserMarkers();
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(content: Text('Marker deleted')),
                     );
                   },

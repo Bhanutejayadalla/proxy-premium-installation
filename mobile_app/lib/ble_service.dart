@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -15,6 +16,9 @@ class BleDiscoveredUser {
     required this.rssi,
     required this.distanceM,
   });
+
+  @override
+  String toString() => 'BleDiscoveredUser(uid: ${uid.substring(0, min(8, uid.length))}…, rssi: $rssi, dist: ${distanceM.toStringAsFixed(1)}m)';
 }
 
 class BleService {
@@ -32,8 +36,11 @@ class BleService {
     return pow(10, (txPower - rssi) / (10 * n)).toDouble();
   }
 
+  static void _log(String msg) => debugPrint('[BLE-Scanner] $msg');
+
   /// Check if the Bluetooth adapter is on and permissions are granted.
   Future<bool> init() async {
+    _log('Requesting BLE permissions…');
     final results = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
@@ -44,6 +51,7 @@ class BleService {
     if (results[Permission.bluetoothScan]?.isDenied == true ||
         results[Permission.bluetoothConnect]?.isDenied == true ||
         results[Permission.location]?.isDenied == true) {
+      _log('Permissions denied: scan=${results[Permission.bluetoothScan]}, connect=${results[Permission.bluetoothConnect]}, loc=${results[Permission.location]}');
       return false;
     }
 
@@ -51,11 +59,14 @@ class BleService {
       final adapterState = await FlutterBluePlus.adapterState.first
           .timeout(const Duration(seconds: 3), onTimeout: () => BluetoothAdapterState.unknown);
       if (adapterState != BluetoothAdapterState.on) {
+        _log('Bluetooth adapter not ON (state: $adapterState)');
         return false;
       }
-    } catch (_) {
+    } catch (e) {
+      _log('Adapter state check failed: $e');
       return false;
     }
+    _log('BLE init OK — permissions granted, adapter ON');
     return true;
   }
 
@@ -64,8 +75,10 @@ class BleService {
     try {
       final state = await FlutterBluePlus.adapterState.first
           .timeout(const Duration(seconds: 3), onTimeout: () => BluetoothAdapterState.unknown);
+      _log('Adapter state: $state');
       return state == BluetoothAdapterState.on;
-    } catch (_) {
+    } catch (e) {
+      _log('isBluetoothOn check failed: $e');
       return false;
     }
   }
@@ -79,6 +92,7 @@ class BleService {
     int minRssi = rssiThreshold,
     int durationSeconds = 8,
   }) async {
+    _log('Starting Proxi scan (duration: ${durationSeconds}s, minRssi: $minRssi)');
     final Map<String, BleDiscoveredUser> discoveredUsers = {};
 
     // Stop any previous scan cleanly
@@ -95,6 +109,7 @@ class BleService {
         final uid = _extractProxiUid(r);
         if (uid != null && uid.isNotEmpty) {
           final distance = estimateDistanceMeters(r.rssi);
+          _log('Found Proxi user: uid=${uid.substring(0, min(8, uid.length))}… rssi=${r.rssi} dist=${distance.toStringAsFixed(1)}m');
           // Keep the strongest signal per user
           if (!discoveredUsers.containsKey(uid) ||
               r.rssi > discoveredUsers[uid]!.rssi) {
@@ -106,7 +121,7 @@ class BleService {
           }
         }
       }
-    }, onError: (_) { /* ignore scan errors */ });
+    }, onError: (e) { _log('Scan stream error: $e'); });
 
     // Start scan after listener is active
     try {
@@ -114,7 +129,9 @@ class BleService {
         timeout: Duration(seconds: durationSeconds),
         androidUsesFineLocation: true,
       );
+      _log('Scan started successfully');
     } catch (e) {
+      _log('startScan failed: $e');
       await sub.cancel();
       return [];
     }
@@ -125,8 +142,10 @@ class BleService {
     await sub.cancel();
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
 
-    return discoveredUsers.values.toList()
+    final sorted = discoveredUsers.values.toList()
       ..sort((a, b) => a.distanceM.compareTo(b.distanceM));
+    _log('Proxi scan complete: ${sorted.length} users found, ${discoveredUsers.length} unique UIDs');
+    return sorted;
   }
 
   /// Extract a Proxi UID from a scan result's manufacturer data.

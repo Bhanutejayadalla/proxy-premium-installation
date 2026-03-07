@@ -103,11 +103,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
     });
 
     try {
-      state.scanNearby();
-
-      // Wait for BLE scan to complete (8s scan + processing)
-      final waitTime = state.discoveryMode == DiscoveryMode.ble ? 12 : 4;
-      await Future.delayed(Duration(seconds: waitTime));
+      await state.scanNearby();
 
       if (mounted) {
         // Check if BLE scan produced an error
@@ -136,11 +132,15 @@ class _NearbyScreenState extends State<NearbyScreen> {
     try {
       await state.sendConnectionRequest(uid);
       if (mounted) {
+        // Check if it was queued offline
+        final wasQueued = state.isConnectionQueuedOffline(uid);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connection request sent!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(wasQueued
+                ? 'Request queued — will send when online'
+                : 'Connection request sent!'),
+            backgroundColor: wasQueued ? Colors.orange : Colors.green,
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -271,18 +271,52 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     : Colors.green,
               ),
               const SizedBox(width: 6),
-              Text(
-                state.discoveryMode == DiscoveryMode.ble
-                    ? "BLE range: ~30-50m  \u2022  No internet needed"
-                    : "GPS radius: 10 km  \u2022  Requires internet",
-                style: TextStyle(
-                  fontSize: 11,
-                  color: state.discoveryMode == DiscoveryMode.ble
-                      ? Colors.blue[700]
-                      : Colors.green[700],
-                  fontWeight: FontWeight.w500,
+              Expanded(
+                child: Text(
+                  state.discoveryMode == DiscoveryMode.ble
+                      ? "BLE range: ~30-50m  \u2022  No internet needed"
+                      : "GPS radius: 10 km  \u2022  Requires internet",
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: state.discoveryMode == DiscoveryMode.ble
+                        ? Colors.blue[700]
+                        : Colors.green[700],
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
+              // Advertising status indicator (BLE mode only)
+              if (state.discoveryMode == DiscoveryMode.ble)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: state.isBleAdvertising
+                        ? Colors.green.withValues(alpha: 0.15)
+                        : Colors.grey.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6, height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: state.isBleAdvertising ? Colors.green : Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        state.isBleAdvertising ? "Visible" : "Hidden",
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: state.isBleAdvertising ? Colors.green[700] : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),
@@ -398,11 +432,37 @@ class _NearbyScreenState extends State<NearbyScreen> {
                             : null,
                       ),
                       title: Text(user.username),
-                      subtitle: Text(user.distanceKm != null
-                          ? (user.distanceKm! < 0.1
-                              ? '${(user.distanceKm! * 1000).toStringAsFixed(0)} m away'
-                              : '${user.distanceKm!.toStringAsFixed(1)} km away')
-                          : user.bio),
+                      subtitle: Row(
+                        children: [
+                          if (user.distanceKm != null) ...[
+                            // Signal strength icon for BLE discoveries
+                            if (state.discoveryMode == DiscoveryMode.ble) ...[
+                              Icon(
+                                user.distanceKm! < 0.01
+                                    ? Icons.signal_cellular_4_bar
+                                    : user.distanceKm! < 0.03
+                                        ? Icons.signal_cellular_alt
+                                        : Icons.signal_cellular_alt_1_bar,
+                                size: 12,
+                                color: user.distanceKm! < 0.01
+                                    ? Colors.green
+                                    : user.distanceKm! < 0.03
+                                        ? Colors.orange
+                                        : Colors.red,
+                              ),
+                              const SizedBox(width: 4),
+                            ],
+                            Flexible(
+                              child: Text(
+                                user.distanceKm! < 0.1
+                                    ? '${(user.distanceKm! * 1000).toStringAsFixed(0)} m away'
+                                    : '${user.distanceKm!.toStringAsFixed(1)} km away',
+                              ),
+                            ),
+                          ] else
+                            Flexible(child: Text(user.bio)),
+                        ],
+                      ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -447,18 +507,38 @@ class _NearbyScreenState extends State<NearbyScreen> {
                                       fontWeight: FontWeight.bold)),
                             )
                           else if (connStatus == 'pending_received')
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(12),
+                            GestureDetector(
+                              onTap: () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                // Find the connection and accept it
+                                final connId = await state.firebase
+                                    .findConnectionId(state.currentUser!.uid, user.uid, mode: state.currentMode);
+                                if (connId != null) {
+                                  await state.respondToConnection(connId, 'accepted');
+                                  if (mounted) {
+                                    messenger.showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Connection accepted!'),
+                                        backgroundColor: Colors.green,
+                                        duration: Duration(seconds: 2),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text("Accept?",
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.bold)),
                               ),
-                              child: const Text("Accept?",
-                                  style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.blue,
-                                      fontWeight: FontWeight.bold)),
                             )
                           else
                             isPending

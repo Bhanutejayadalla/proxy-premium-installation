@@ -7,11 +7,16 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+
+    companion object {
+        private const val TAG = "BLE-Advertiser"
+    }
 
     private val CHANNEL = "com.proxi.ble_advertiser"
 
@@ -21,9 +26,11 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        Log.d(TAG, "Registering MethodChannel: $CHANNEL")
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
+                Log.d(TAG, "Method called: ${call.method}")
                 when (call.method) {
                     "startAdvertising" -> {
                         val uid = call.argument<String>("uid") ?: ""
@@ -50,6 +57,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startAdvertising(uid: String, result: MethodChannel.Result) {
+        Log.d(TAG, "startAdvertising called, uid=${uid.take(8)}…, isAdvertising=$isAdvertising")
         if (isAdvertising) {
             result.success(true)
             return
@@ -93,6 +101,7 @@ class MainActivity : FlutterActivity() {
         advertiseCallback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
                 isAdvertising = true
+                Log.i(TAG, "Advertising STARTED successfully")
                 result.success(true)
             }
 
@@ -106,6 +115,7 @@ class MainActivity : FlutterActivity() {
                     ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "Too many advertisers"
                     else -> "Unknown error: $errorCode"
                 }
+                Log.e(TAG, "Advertising FAILED: $errorMsg (code=$errorCode)")
                 result.error("ADV_FAILED", errorMsg, null)
             }
         }

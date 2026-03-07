@@ -114,7 +114,7 @@ class _VenueBookingScreenState extends State<VenueBookingScreen> {
                     decoration: const InputDecoration(labelText: 'Venue Name', border: OutlineInputBorder())),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: type,
+                  initialValue: type,
                   decoration: const InputDecoration(labelText: 'Sport Type', border: OutlineInputBorder()),
                   items: _sportTypes.map((t) => DropdownMenuItem(
                       value: t, child: Text(t[0].toUpperCase() + t.substring(1)))).toList(),

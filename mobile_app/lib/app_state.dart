@@ -488,11 +488,16 @@ class AppState extends ChangeNotifier {
     if (currentUser == null) return;
     try {
       final supported = await bleAdvertiser.isSupported();
-      if (!supported) return;
+      if (!supported) {
+        debugPrint('[BLE] Advertising not supported on this device');
+        return;
+      }
       await bleAdvertiser.startAdvertising(currentUser!.uid);
-      isBleAdvertising = true;
+      isBleAdvertising = bleAdvertiser.isAdvertising;
+      debugPrint('[BLE] Advertising active: $isBleAdvertising');
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[BLE] startBleAdvertising error: $e');
       isBleAdvertising = false;
     }
   }
@@ -511,15 +516,17 @@ class AppState extends ChangeNotifier {
     try {
       final users = await firebase.getDiscoverableUsers();
       await userCache.cacheUsers(users);
-    } catch (_) {
-      // Offline or error — cache stays as-is
+      debugPrint('[BLE] User cache synced: ${users.length} users');
+    } catch (e) {
+      debugPrint('[BLE] Cache sync failed (offline?): $e');
     }
   }
 
-  void scanNearby() async {
+  Future<void> scanNearby() async {
     bleScanError = '';
     bleDevicesDetected = 0;
     bleProxiUsersDetected = 0;
+    debugPrint('[BLE] scanNearby started — mode: $discoveryMode');
 
     if (discoveryMode == DiscoveryMode.ble) {
       // ═══════════════════════════════════════════
@@ -607,9 +614,12 @@ class AppState extends ChangeNotifier {
               currentUser!.uid, pos.latitude, pos.longitude, bleActive: true);
           // Sync cache while we have internet
           await syncUserCacheFromFirestore();
+          // Flush any offline connection requests
+          await flushOfflineConnectionQueue();
         }
       } catch (_) {
         // Offline — no problem, BLE results are already shown
+        debugPrint('[BLE] Offline — skipping location update & cache sync');
       }
 
     } else {
@@ -798,17 +808,59 @@ class AppState extends ChangeNotifier {
   //  CONNECTIONS (Phase 6)
   // ─────────────────────────────────────────────
 
+  /// Pending offline connection requests (queued when no internet).
+  final List<Map<String, String>> _offlineConnectionQueue = [];
+
+  /// Whether there are pending offline connection requests for a given UID.
+  bool isConnectionQueuedOffline(String uid) =>
+      _offlineConnectionQueue.any((r) => r['toUid'] == uid);
+
   Future<void> sendConnectionRequest(String toUid) async {
     if (currentUser == null) return;
-    await firebase.sendConnectionRequest(
-      fromUid: currentUser!.uid,
-      toUid: toUid,
-      fromUsername: currentUser!.username,
-      mode: currentMode,
-    );
-    // Refresh currentUser to pick up updated followers/following arrays
-    currentUser = await firebase.getUser(currentUser!.uid);
-    notifyListeners();
+    try {
+      await firebase.sendConnectionRequest(
+        fromUid: currentUser!.uid,
+        toUid: toUid,
+        fromUsername: currentUser!.username,
+        mode: currentMode,
+      );
+      // Refresh currentUser to pick up updated followers/following arrays
+      currentUser = await firebase.getUser(currentUser!.uid);
+      notifyListeners();
+    } catch (e) {
+      // Queue for later if offline
+      debugPrint('[BLE] Connection request queued offline for $toUid');
+      _offlineConnectionQueue.add({
+        'toUid': toUid,
+        'mode': currentMode,
+      });
+      notifyListeners();
+    }
+  }
+
+  /// Flush any queued offline connection requests (call when back online).
+  Future<void> flushOfflineConnectionQueue() async {
+    if (currentUser == null || _offlineConnectionQueue.isEmpty) return;
+    final pending = List<Map<String, String>>.from(_offlineConnectionQueue);
+    _offlineConnectionQueue.clear();
+    for (final req in pending) {
+      try {
+        await firebase.sendConnectionRequest(
+          fromUid: currentUser!.uid,
+          toUid: req['toUid']!,
+          fromUsername: currentUser!.username,
+          mode: req['mode'] ?? currentMode,
+        );
+        debugPrint('[BLE] Flushed offline request to ${req['toUid']}');
+      } catch (e) {
+        debugPrint('[BLE] Flush failed for ${req['toUid']}: $e');
+        _offlineConnectionQueue.add(req); // re-queue
+      }
+    }
+    if (currentUser != null) {
+      currentUser = await firebase.getUser(currentUser!.uid);
+      notifyListeners();
+    }
   }
 
   Future<void> respondToConnection(String connectionId, String status) async {

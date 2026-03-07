@@ -66,15 +66,15 @@ class _DirectChatsTab extends StatelessWidget {
           final err = snap.error.toString();
           // Firestore missing-index errors contain a URL to create the index
           if (err.contains('indexes?create_composite')) {
-            return Center(
+            return const Center(
               child: Padding(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.build, size: 48, color: Colors.orange),
-                    const SizedBox(height: 12),
-                    const Text(
+                    Icon(Icons.build, size: 48, color: Colors.orange),
+                    SizedBox(height: 12),
+                    Text(
                       "Firestore index not yet created.\n"
                       "Ask the admin to deploy indexes:\n"
                       "firebase deploy --only firestore:indexes",
@@ -157,15 +157,15 @@ class _GroupChatsTab extends StatelessWidget {
         if (snap.hasError) {
           final err = snap.error.toString();
           if (err.contains('indexes?create_composite')) {
-            return Center(
+            return const Center(
               child: Padding(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.build, size: 48, color: Colors.orange),
-                    const SizedBox(height: 12),
-                    const Text(
+                    Icon(Icons.build, size: 48, color: Colors.orange),
+                    SizedBox(height: 12),
+                    Text(
                       "Firestore index not yet created.\n"
                       "Ask the admin to deploy indexes:\n"
                       "firebase deploy --only firestore:indexes",
