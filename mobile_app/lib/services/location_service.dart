@@ -5,6 +5,12 @@ class LocationService {
   Timer? _updateTimer;
   Position? lastPosition;
 
+  /// Check if Location Services are enabled at the system level (GPS toggle in Settings).
+  /// This is separate from the app permission — the service can be OFF even if permission is granted.
+  Future<bool> isLocationServiceEnabled() async {
+    return await Geolocator.isLocationServiceEnabled();
+  }
+
   /// Check and request location permissions using Geolocator's own API.
   /// Returns true only if permission is granted (or already granted).
   Future<bool> requestPermission() async {

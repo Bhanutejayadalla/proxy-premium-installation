@@ -20,22 +20,33 @@ class _NearbyScreenState extends State<NearbyScreen> {
   String _errorMessage = '';
   final Set<String> _pendingRequests = {};
   bool _bleAdapterOn = false;
-  bool _locationServiceOn = false;
+  bool _locationServiceOn = false;   // permission granted AND service enabled
+  bool _locationServiceEnabled = false; // service switch in system settings
 
   @override
   void initState() {
     super.initState();
     _refreshAdapterStatus();
+    // Auto-start BLE advertising as soon as user opens the Nearby screen.
+    // This ensures the device is visible BEFORE the other user taps Scan.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = Provider.of<AppState>(context, listen: false);
+      if (state.discoveryMode == DiscoveryMode.ble) {
+        state.startBleAdvertising();
+      }
+    });
   }
 
   Future<void> _refreshAdapterStatus() async {
     final state = Provider.of<AppState>(context, listen: false);
     final bleOn = await state.ble.isBluetoothOn();
-    final locOn = await state.location.requestPermission();
+    final locServiceOn = await state.location.isLocationServiceEnabled();
+    final locPermOk = locServiceOn ? await state.location.requestPermission() : false;
     if (mounted) {
       setState(() {
         _bleAdapterOn = bleOn;
-        _locationServiceOn = locOn;
+        _locationServiceEnabled = locServiceOn;
+        _locationServiceOn = locPermOk;
       });
     }
   }
@@ -320,6 +331,68 @@ class _NearbyScreenState extends State<NearbyScreen> {
             ],
           ),
         ),
+
+        // Location Services disabled warning
+        if (state.discoveryMode == DiscoveryMode.ble && !_locationServiceEnabled)
+          GestureDetector(
+            onTap: () async {
+              await openAppSettings();
+              await _refreshAdapterStatus();
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.location_off, color: Colors.orange, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Location Services OFF \u2014 BLE scan may not work. Tap to enable.',
+                      style: TextStyle(fontSize: 11, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // Advertising not active warning (BLE mode)
+        if (state.discoveryMode == DiscoveryMode.ble &&
+            !state.isBleAdvertising &&
+            _bleAdapterOn)
+          GestureDetector(
+            onTap: () {
+              final s = Provider.of<AppState>(context, listen: false);
+              s.startBleAdvertising();
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.visibility_off, color: Colors.amber, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Your device is not visible to others. Tap to start broadcasting.',
+                      style: TextStyle(fontSize: 11, color: Colors.amber),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
 
         // SCANNER AREA
         GestureDetector(

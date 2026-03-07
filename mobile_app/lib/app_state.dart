@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'services/auth_service.dart';
 import 'services/ble_advertiser_service.dart';
 import 'services/firebase_service.dart';
@@ -487,9 +488,20 @@ class AppState extends ChangeNotifier {
   Future<void> startBleAdvertising() async {
     if (currentUser == null) return;
     try {
+      // Explicitly request BLUETOOTH_ADVERTISE permission before calling native code.
+      // On Android 12+, advertising silently fails without this permission at runtime.
+      if (Platform.isAndroid) {
+        final advPerm = await Permission.bluetoothAdvertise.request();
+        if (!advPerm.isGranted) {
+          debugPrint('[BLE] BLUETOOTH_ADVERTISE permission not granted (${advPerm}) — device will not be visible to others');
+          isBleAdvertising = false;
+          notifyListeners();
+          return;
+        }
+      }
       final supported = await bleAdvertiser.isSupported();
       if (!supported) {
-        debugPrint('[BLE] Advertising not supported on this device');
+        debugPrint('[BLE] Advertising not supported on this device (no peripheral mode)');
         return;
       }
       await bleAdvertiser.startAdvertising(currentUser!.uid);
@@ -499,6 +511,7 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       debugPrint('[BLE] startBleAdvertising error: $e');
       isBleAdvertising = false;
+      notifyListeners();
     }
   }
 
@@ -537,12 +550,21 @@ class AppState extends ChangeNotifier {
       // ── Step 1: Verify Bluetooth is actually ON ──
       final btOn = await ble.isBluetoothOn();
       if (!btOn) {
-        bleScanError = 'Bluetooth is turned off. Please enable Bluetooth in your device settings and try again.';
+        bleScanError = 'Bluetooth is turned off. Please enable Bluetooth in Settings and try again.';
         notifyListeners();
         return;
       }
 
-      // ── Step 2: Initialize BLE permissions ──
+      // ── Step 1b: Check Location Services (required for BLE scan on Android ≤ 11) ──
+      final locServiceOn = await location.isLocationServiceEnabled();
+      if (!locServiceOn) {
+        bleScanError = 'Location Services are OFF. Please enable Location in Settings → Location to allow BLE scanning.';
+        debugPrint('[BLE] Location services disabled — scan may fail on Android ≤ 11');
+        notifyListeners();
+        return;
+      }
+
+      // ── Step 2: Initialize BLE permissions (scan + connect + advertise + location) ──
       final ready = await ble.init();
       if (!ready) {
         bleScanError = 'Bluetooth permissions denied. Please grant Bluetooth and Location permissions in Settings.';
@@ -551,7 +573,15 @@ class AppState extends ChangeNotifier {
       }
 
       // ── Step 3: Start advertising our UID so others can find us ──
+      // THIS IS CRITICAL: both devices must be advertising for each other to detect them.
+      debugPrint('[BLE] Starting advertisement before scan so other devices can find us...');
       await startBleAdvertising();
+      if (!isBleAdvertising) {
+        debugPrint('[BLE] WARNING: Advertising failed. This device will NOT be discoverable by others.');
+        // Continue with scan anyway — we can still detect devices that are advertising
+      } else {
+        debugPrint('[BLE] Advertising ACTIVE — this device is now visible to other Proxi users');
+      }
 
       // ── Step 4: Scan for other Proxi users (no internet needed!) ──
       // Looks for BLE advertisements with our custom manufacturer data.
@@ -661,6 +691,12 @@ class AppState extends ChangeNotifier {
     discoveryMode = mode;
     nearbyUsers = [];
     notifyListeners();
+    // Automatically start BLE advertising when switching to BLE mode
+    if (mode == DiscoveryMode.ble) {
+      startBleAdvertising();
+    } else {
+      stopBleAdvertising();
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -884,11 +920,9 @@ class AppState extends ChangeNotifier {
     return firebase.getPendingRequestsStream(currentUser!.uid)
         .map((list) => list.map((m) => Connection.fromMap(m)).toList());
   }
-
   // ─────────────────────────────────────────────
   //  JOBS (Phase 2)
   // ─────────────────────────────────────────────
-
   Future<void> createJob({
     Map<String, dynamic>? data,
     String? title,
@@ -913,15 +947,14 @@ class AppState extends ChangeNotifier {
       'author_username': currentUser!.username,
     });
   }
-
   Future<void> applyToJob(String jobId) async {
     if (currentUser == null) return;
     await firebase.applyToJob(jobId, currentUser!.uid);
   }
-
   @override
   void dispose() {
     _stopListeners();
     super.dispose();
   }
 }
+

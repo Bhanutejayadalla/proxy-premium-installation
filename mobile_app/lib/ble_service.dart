@@ -22,9 +22,9 @@ class BleDiscoveredUser {
 }
 
 class BleService {
-  /// Maximum RSSI threshold — devices weaker than this are ignored.
-  /// -80 dBm ≈ ~30-50 meters in open space (BLE practical range).
-  static const int rssiThreshold = -80;
+  /// RSSI threshold — devices weaker than this are ignored.
+  /// -90 dBm covers the full 30-50m BLE range reliably.
+  static const int rssiThreshold = -90;
 
   /// Manufacturer company ID used by Proxi (must match native Kotlin code).
   static const int proxiCompanyId = 0xFF01;
@@ -48,11 +48,19 @@ class BleService {
       Permission.location,
     ].request();
 
-    if (results[Permission.bluetoothScan]?.isDenied == true ||
-        results[Permission.bluetoothConnect]?.isDenied == true ||
-        results[Permission.location]?.isDenied == true) {
-      _log('Permissions denied: scan=${results[Permission.bluetoothScan]}, connect=${results[Permission.bluetoothConnect]}, loc=${results[Permission.location]}');
+    final scanOk = results[Permission.bluetoothScan]?.isGranted == true;
+    final connectOk = results[Permission.bluetoothConnect]?.isGranted == true;
+    final advertiseOk = results[Permission.bluetoothAdvertise]?.isGranted == true;
+    final locationOk = results[Permission.location]?.isGranted == true;
+    _log('Permissions — scan: $scanOk, connect: $connectOk, advertise: $advertiseOk, location: $locationOk');
+
+    if (!scanOk || !connectOk) {
+      _log('CRITICAL: bluetoothScan or bluetoothConnect denied — cannot scan');
       return false;
+    }
+    if (!advertiseOk) {
+      _log('WARNING: bluetoothAdvertise denied — device will NOT be visible to others');
+      // Do not return false here; scanning still works without advertise
     }
 
     try {
@@ -102,14 +110,19 @@ class BleService {
 
     // Subscribe to results BEFORE starting scan to avoid missing early results
     final sub = FlutterBluePlus.scanResults.listen((results) {
+      _log('--- Scan batch: ${results.length} device(s) ---');
       for (final r in results) {
-        if (r.rssi < minRssi) continue;
+        // Log devices below threshold too for debugging
+        if (r.rssi < minRssi) {
+          _log('  Skipping ${r.device.remoteId.str} rssi=${r.rssi} (below threshold $minRssi)');
+          continue;
+        }
 
         // Check manufacturer data for Proxi company ID
         final uid = _extractProxiUid(r);
         if (uid != null && uid.isNotEmpty) {
           final distance = estimateDistanceMeters(r.rssi);
-          _log('Found Proxi user: uid=${uid.substring(0, min(8, uid.length))}… rssi=${r.rssi} dist=${distance.toStringAsFixed(1)}m');
+          _log('PROXI USER FOUND: uid=${uid.substring(0, min(8, uid.length))}… rssi=${r.rssi} dist=${distance.toStringAsFixed(1)}m');
           // Keep the strongest signal per user
           if (!discoveredUsers.containsKey(uid) ||
               r.rssi > discoveredUsers[uid]!.rssi) {
@@ -128,8 +141,9 @@ class BleService {
       await FlutterBluePlus.startScan(
         timeout: Duration(seconds: durationSeconds),
         androidUsesFineLocation: true,
+        androidScanMode: AndroidScanMode.lowLatency,
       );
-      _log('Scan started successfully');
+      _log('Scan started — LOW_LATENCY mode, duration: ${durationSeconds}s');
     } catch (e) {
       _log('startScan failed: $e');
       await sub.cancel();
@@ -152,15 +166,33 @@ class BleService {
   /// Returns null if this is not a Proxi advertisement.
   String? _extractProxiUid(ScanResult result) {
     final mfData = result.advertisementData.manufacturerData;
-    if (mfData.isEmpty) return null;
+    final deviceId = result.device.remoteId.str;
+    final deviceName = result.advertisementData.advName.isNotEmpty
+        ? result.advertisementData.advName
+        : result.device.platformName.isNotEmpty
+            ? result.device.platformName
+            : 'Unknown';
+
+    // Log every device for debugging
+    if (mfData.isEmpty) {
+      _log('  Device $deviceId ($deviceName) rssi=${result.rssi}: no manufacturer data');
+      return null;
+    }
+    _log('  Device $deviceId ($deviceName) rssi=${result.rssi}: mfData keys=${mfData.keys.toList()} [looking for $proxiCompanyId]');
 
     // Check for our company ID (0xFF01 = 65281)
     if (mfData.containsKey(proxiCompanyId)) {
       final bytes = mfData[proxiCompanyId]!;
-      if (bytes.isEmpty) return null;
+      if (bytes.isEmpty) {
+        _log('  ✓ Proxi device found but UID bytes empty!');
+        return null;
+      }
       try {
-        return utf8.decode(bytes).trim();
-      } catch (_) {
+        final uid = utf8.decode(bytes).trim();
+        _log('  ✓ Proxi user detected! uid=${uid.substring(0, min(8, uid.length))}…');
+        return uid;
+      } catch (e) {
+        _log('  ✗ Failed to decode UID bytes: $e');
         return null;
       }
     }
@@ -193,6 +225,7 @@ class BleService {
       await FlutterBluePlus.startScan(
         timeout: Duration(seconds: durationSeconds),
         androidUsesFineLocation: true,
+        androidScanMode: AndroidScanMode.lowLatency,
       );
     } catch (e) {
       await sub.cancel();
