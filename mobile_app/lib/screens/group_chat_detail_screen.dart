@@ -300,20 +300,56 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
           ),
 
           // Input bar
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(children: [
-              IconButton(
-                  icon: const Icon(Icons.attach_file), onPressed: _pickFile),
-              Expanded(
-                  child: TextField(
-                      controller: _text,
-                      decoration:
-                          const InputDecoration(hintText: "Type..."))),
-              IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: () => _send(text: _text.text)),
-            ]),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              boxShadow: const [
+                BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 6,
+                    offset: Offset(0, -2))
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    IconButton(
+                        icon: const Icon(Icons.attach_file),
+                        onPressed: _pickFile),
+                    Expanded(
+                      child: TextField(
+                        controller: _text,
+                        maxLines: 6,
+                        minLines: 1,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          hintText: 'Type a message…',
+                          filled: true,
+                          fillColor: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withAlpha(80),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                        icon: const Icon(Icons.send),
+                        onPressed: () => _send(text: _text.text)),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),

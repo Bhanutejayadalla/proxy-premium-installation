@@ -1,8 +1,7 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:nearby_connections/nearby_connections.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
 import '../models.dart';
@@ -12,61 +11,40 @@ import 'mesh_encryption_service.dart';
 /// Maximum number of relay hops before a packet is discarded.
 const int kMaxHops = 5;
 
-/// BLE GATT service UUID for Proxi Mesh.
-const String kMeshServiceUuid = '12345678-1234-1234-1234-1234567890ab';
+/// Unique service ID for Proxi mesh — must match on both devices.
+const String kProxiServiceId = 'com.proxi.mesh.v1';
 
-/// BLE GATT characteristic for mesh message exchange.
-const String kMeshCharUuid = '12345678-1234-1234-1234-1234567890cd';
-
-/// Company ID embedded in BLE advertisement manufacturer data.
-const int kProxiCompanyId = 0xFF01;
-
-/// A device discovered on the mesh with its BLE reference.
+/// A peer currently connected via Google Nearby Connections.
 class MeshPeer {
   final String uid;
-  final BluetoothDevice device;
-  final int rssi;
-
-  MeshPeer({required this.uid, required this.device, required this.rssi});
+  final String endpointId;
+  MeshPeer({required this.uid, required this.endpointId});
 }
 
-/// Core mesh service:
-///  - BLE advertisement (discovery beacon)
-///  - BLE scanning (peer discovery)
-///  - GATT server / client for message exchange
-///  - Multi-hop relay logic
-///  - Battery optimisation (scan only when active)
 class MeshService extends ChangeNotifier {
-  // ── dependencies ────────────────────────────────────────────────────────────
   final MeshDbService _db = MeshDbService();
   final MeshEncryptionService _crypto = MeshEncryptionService();
   final _uuid = const Uuid();
 
-  // ── state ────────────────────────────────────────────────────────────────────
   String? _myUid;
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
-  /// Peers currently visible in range: uid → MeshPeer
-  final Map<String, MeshPeer> _peers = {};
-  List<MeshPeer> get peers => _peers.values.toList();
+  final Map<String, String> _endpointToUid = {};
+  final Map<String, String> _connectedPeers = {};
 
-  /// Stream of incoming mesh messages for the UI layer.
-  final _incomingController =
-      StreamController<MeshMessage>.broadcast();
-  Stream<MeshMessage> get incomingMessages => _incomingController.stream;
+  List<MeshPeer> get peers => _connectedPeers.entries
+      .map((e) => MeshPeer(uid: e.key, endpointId: e.value))
+      .toList();
 
-  StreamSubscription? _scanSub;
-  Timer? _scanTimer;
+  final _incomingCtrl = StreamController<MeshMessage>.broadcast();
+  Stream<MeshMessage> get incomingMessages => _incomingCtrl.stream;
 
-  // ── lifecycle ────────────────────────────────────────────────────────────────
-
-  /// Initialise the mesh for [myUid]. Call once after auth.
   Future<bool> init(String myUid) async {
     _myUid = myUid;
     final ok = await _requestPermissions();
-    if (!ok) return false;
-    return true;
+    _log('init uid=$myUid permissions=$ok');
+    return ok;
   }
 
   Future<bool> _requestPermissions() async {
@@ -79,105 +57,174 @@ class MeshService extends ChangeNotifier {
     return results.values.every((s) => s.isGranted);
   }
 
-  /// Start BLE advertising + scanning.
   Future<void> start() async {
     if (_isRunning || _myUid == null) return;
     _isRunning = true;
     notifyListeners();
-    _log('Mesh started for $_myUid');
-    _startScan();
+    _log('Starting mesh for $_myUid');
+    try {
+      final adOk = await Nearby().startAdvertising(
+        _myUid!,
+        Strategy.P2P_CLUSTER,
+        onConnectionInitiated: _onConnectionInitiated,
+        onConnectionResult: _onConnectionResult,
+        onDisconnected: _onDisconnected,
+        serviceId: kProxiServiceId,
+      );
+      _log('Advertising started: $adOk');
+      final disOk = await Nearby().startDiscovery(
+        _myUid!,
+        Strategy.P2P_CLUSTER,
+        onEndpointFound: _onEndpointFound,
+        onEndpointLost: _onEndpointLost,
+        serviceId: kProxiServiceId,
+      );
+      _log('Discovery started: $disOk');
+    } catch (e) {
+      _log('Start error: $e');
+      _isRunning = false;
+      notifyListeners();
+    }
   }
 
-  /// Stop all BLE activity (battery optimisation when app idle).
   Future<void> stop() async {
     if (!_isRunning) return;
-    _scanTimer?.cancel();
-    _scanSub?.cancel();
-    try { await FlutterBluePlus.stopScan(); } catch (_) {}
+    try {
+      await Nearby().stopAdvertising();
+      await Nearby().stopDiscovery();
+      await Nearby().stopAllEndpoints();
+    } catch (_) {}
     _isRunning = false;
-    _peers.clear();
+    _connectedPeers.clear();
+    _endpointToUid.clear();
     notifyListeners();
     _log('Mesh stopped');
   }
 
-  // ── scanning ─────────────────────────────────────────────────────────────────
-
-  void _startScan() {
-    _scanSub?.cancel();
-    _scanTimer?.cancel();
-
-    // Repeat every 15 s for continuous peer discovery
-    _scanTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (_isRunning) _doScan();
+  void _onEndpointFound(String endpointId, String endpointName, String serviceId) {
+    _log('Endpoint found: $endpointName ($endpointId)');
+    _endpointToUid[endpointId] = endpointName;
+    Nearby().requestConnection(
+      _myUid!,
+      endpointId,
+      onConnectionInitiated: _onConnectionInitiated,
+      onConnectionResult: _onConnectionResult,
+      onDisconnected: _onDisconnected,
+    ).catchError((e) {
+      _log('requestConnection error: $e');
+      return false;
     });
-    _doScan(); // immediate first scan
   }
 
-  Future<void> _doScan() async {
-    try {
-      await FlutterBluePlus.stopScan();
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      final newPeers = <String, MeshPeer>{};
-
-      _scanSub = FlutterBluePlus.scanResults.listen((results) {
-        for (final r in results) {
-          if (r.rssi < -90) continue; // too far away
-
-          // Parse manufacturer data to extract Proxi UID
-          final mfData = r.advertisementData.manufacturerData;
-          final uid = _extractUid(mfData);
-          if (uid == null || uid == _myUid) continue;
-
-          newPeers[uid] = MeshPeer(
-              uid: uid, device: r.device, rssi: r.rssi);
-          _log('Peer discovered: $uid rssi=${r.rssi}');
-        }
-      });
-
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 8),
-        androidUsesFineLocation: true,
-      );
-      await Future.delayed(const Duration(seconds: 9));
-
-      // Merge new peers
-      _peers
-        ..clear()
-        ..addAll(newPeers);
+  void _onEndpointLost(String? endpointId) {
+    if (endpointId == null) return;
+    final uid = _endpointToUid.remove(endpointId);
+    if (uid != null) {
+      _connectedPeers.remove(uid);
       notifyListeners();
-      _log('Scan complete — ${_peers.length} peer(s) found');
+      _log('Endpoint lost: $uid');
+    }
+  }
 
-      // Attempt delivery to any newly seen peers
-      for (final peer in _peers.values) {
-        await _deliverPendingTo(peer);
+  void _onConnectionInitiated(String endpointId, ConnectionInfo info) {
+    _log('Connection initiated: ${info.endpointName} incoming=${info.isIncomingConnection}');
+    _endpointToUid[endpointId] = info.endpointName;
+    Nearby().acceptConnection(
+      endpointId,
+      onPayLoadRecieved: _onPayloadReceived,
+      onPayloadTransferUpdate: (id, update) {},
+    ).catchError((e) {
+      _log('acceptConnection error: $e');
+      return false;
+    });
+  }
+
+  void _onConnectionResult(String endpointId, Status status) {
+    _log('Connection result: $status for $endpointId');
+    if (status == Status.CONNECTED) {
+      final uid = _endpointToUid[endpointId];
+      if (uid != null && uid != _myUid) {
+        _connectedPeers[uid] = endpointId;
+        notifyListeners();
+        _log('Peer connected: $uid (${peers.length} total)');
+        _deliverPendingTo(uid, endpointId);
       }
-    } catch (e) {
-      _log('Scan error: $e');
+    } else {
+      _endpointToUid.remove(endpointId);
+      _log('Connection failed for $endpointId: $status');
     }
   }
 
-  /// Extract UID from BLE manufacturer data bytes.
-  /// Format: [2-byte companyId LE] [uid as UTF-8 bytes]
-  String? _extractUid(Map<int, List<int>> mfData) {
-    final bytes = mfData[kProxiCompanyId];
-    if (bytes == null || bytes.length < 4) return null;
+  void _onDisconnected(String endpointId) {
+    final uid = _endpointToUid.remove(endpointId);
+    if (uid != null) {
+      _connectedPeers.remove(uid);
+      notifyListeners();
+      _log('Peer disconnected: $uid');
+    }
+  }
+
+  void _onPayloadReceived(String endpointId, Payload payload) async {
+    if (payload.type != PayloadType.BYTES || payload.bytes == null) return;
     try {
-      return utf8.decode(Uint8List.fromList(bytes));
-    } catch (_) {
-      return null;
+      final jsonStr = String.fromCharCodes(payload.bytes!);
+      final packet = MeshWirePacket.fromJson(jsonStr);
+      _log('Message received from $endpointId: ${packet.messageId}');
+      await onPacketReceived(packet);
+    } catch (e) {
+      _log('Payload parse error: $e');
     }
   }
 
-  // ── send message ─────────────────────────────────────────────────────────────
+  Future<void> onPacketReceived(MeshWirePacket packet) async {
+    final myUid = _myUid;
+    if (myUid == null) return;
+    if (packet.receiverId == myUid) {
+      try {
+        final plaintext = _crypto.decrypt(packet.encryptedPayload, packet.senderId, myUid);
+        final msg = MeshMessage(
+          messageId: packet.messageId,
+          senderId: packet.senderId,
+          receiverId: myUid,
+          messageText: plaintext,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(packet.timestamp),
+          deliveryStatus: MeshDeliveryStatus.delivered,
+          hopCount: packet.hopCount,
+          encryptedPayload: packet.encryptedPayload,
+        );
+        await _db.insertMessage(msg);
+        _incomingCtrl.add(msg);
+      } catch (e) {
+        _log('Decrypt error: $e');
+      }
+    } else if (packet.hopCount < kMaxHops) {
+      final relayId = _connectedPeers[packet.receiverId];
+      if (relayId != null) {
+        try {
+          await Nearby().sendBytesPayload(
+            relayId,
+            Uint8List.fromList(utf8.encode(packet.withIncrementedHop().toJson())),
+          );
+          _log('Relayed ${packet.messageId}');
+        } catch (e) {
+          _log('Relay error: $e');
+        }
+      } else {
+        await _db.insertMessage(MeshMessage(
+          messageId: packet.messageId,
+          senderId: packet.senderId,
+          receiverId: packet.receiverId,
+          messageText: '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(packet.timestamp),
+          deliveryStatus: MeshDeliveryStatus.relayed,
+          hopCount: packet.hopCount + 1,
+          encryptedPayload: packet.encryptedPayload,
+        ));
+      }
+    }
+  }
 
-  /// Send a chat message via mesh. Stores locally first, then attempts BLE
-  /// delivery if the recipient is in range; otherwise marks as pending for
-  /// relay when a path becomes available.
-  Future<MeshMessage> sendMessage({
-    required String receiverUid,
-    required String text,
-  }) async {
+  Future<MeshMessage> sendMessage({required String receiverUid, required String text}) async {
     final myUid = _myUid!;
     final msg = MeshMessage(
       messageId: _uuid.v4(),
@@ -187,173 +234,63 @@ class MeshService extends ChangeNotifier {
       timestamp: DateTime.now(),
       deliveryStatus: MeshDeliveryStatus.pending,
     );
-
-    // Encrypt before storing
     msg.encryptedPayload = _crypto.encrypt(text, myUid, receiverUid);
-
-    // 1. Persist locally
     await _db.insertMessage(msg);
 
-    // 2. Attempt direct delivery if peer is in range
-    final peer = _peers[receiverUid];
-    if (peer != null) {
-      final ok = await _sendToPeer(peer, msg);
+    final endpointId = _connectedPeers[receiverUid];
+    if (endpointId != null) {
+      final ok = await _sendToEndpoint(endpointId, msg);
       if (ok) {
         msg.deliveryStatus = MeshDeliveryStatus.delivered;
         await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
       }
     } else {
-      // Broadcast to all peers as relay candidates
       await _broadcastRelay(msg);
     }
-
     notifyListeners();
     return msg;
   }
 
-  // ── GATT write ───────────────────────────────────────────────────────────────
-
-  /// Send [msg] directly to [peer] via GATT write. Returns true on success.
-  Future<bool> _sendToPeer(MeshPeer peer, MeshMessage msg) async {
+  Future<bool> _sendToEndpoint(String endpointId, MeshMessage msg) async {
     try {
-      await peer.device.connect(timeout: const Duration(seconds: 6));
-      final services = await peer.device.discoverServices();
-      BluetoothCharacteristic? txChar;
-      for (final svc in services) {
-        if (svc.uuid.toString().toLowerCase() ==
-            kMeshServiceUuid.toLowerCase()) {
-          for (final c in svc.characteristics) {
-            if (c.uuid.toString().toLowerCase() ==
-                kMeshCharUuid.toLowerCase()) {
-              txChar = c;
-              break;
-            }
-          }
-        }
-      }
-      if (txChar == null) {
-        await peer.device.disconnect();
-        return false;
-      }
-
       final packet = MeshWirePacket(
         messageId: msg.messageId,
         senderId: msg.senderId,
         receiverId: msg.receiverId,
         encryptedPayload: msg.encryptedPayload,
         timestamp: msg.timestamp.millisecondsSinceEpoch,
+        hopCount: msg.hopCount,
       );
-
-      // BLE MTU is 512 bytes max; split if required
-      final json = packet.toJson();
-      final bytes = utf8.encode(json);
-      const chunkSize = 480;
-      for (int i = 0; i < bytes.length; i += chunkSize) {
-        final end = min(i + chunkSize, bytes.length);
-        await txChar.write(bytes.sublist(i, end), withoutResponse: false);
-      }
-
-      await peer.device.disconnect();
-      _log('Direct send OK → ${peer.uid}');
+      await Nearby().sendBytesPayload(
+        endpointId,
+        Uint8List.fromList(utf8.encode(packet.toJson())),
+      );
+      _log('Sent to $endpointId');
       return true;
     } catch (e) {
-      _log('Direct send failed to ${peer.uid}: $e');
-      try { await peer.device.disconnect(); } catch (_) {}
+      _log('Send error: $e');
       return false;
     }
   }
 
-  // ── relay ────────────────────────────────────────────────────────────────────
-
-  /// Broadcast [msg] to all currently visible peers for relaying.
   Future<void> _broadcastRelay(MeshMessage msg) async {
     if (msg.hopCount >= kMaxHops) return;
-    for (final peer in _peers.values) {
-      if (peer.uid == msg.senderId) continue; // don't send back to sender
-      final ok = await _sendToPeer(peer, msg);
+    for (final entry in _connectedPeers.entries) {
+      if (entry.key == msg.senderId) continue;
+      final ok = await _sendToEndpoint(entry.value, msg);
       if (ok) {
         await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
-        _log('Relayed ${msg.messageId} via ${peer.uid}');
-        break; // one relay is enough per scan cycle
+        break;
       }
     }
   }
 
-  /// When [peer] comes into range, forward any pending messages addressed to them.
-  Future<void> _deliverPendingTo(MeshPeer peer) async {
-    final pending = await _db.getPendingForReceiver(peer.uid);
+  Future<void> _deliverPendingTo(String uid, String endpointId) async {
+    final pending = await _db.getPendingForReceiver(uid);
     for (final msg in pending) {
       if (msg.hopCount >= kMaxHops) continue;
-      final ok = await _sendToPeer(peer, msg);
-      if (ok) {
-        await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
-        _log('Delivered pending ${msg.messageId} → ${peer.uid}');
-      }
-    }
-  }
-
-  // ── receive (called by GATT server / notification listener) ─────────────────
-
-  /// Process a [MeshWirePacket] received over BLE.
-  /// - If addressed to me: decrypt + store + notify UI
-  /// - If addressed to someone else: relay if hop count allows
-  Future<void> onPacketReceived(MeshWirePacket packet) async {
-    final myUid = _myUid;
-    if (myUid == null) return;
-
-    // Security: Verify sender can encrypt for this conversation
-    if (!_crypto.verifySender(packet, myUid)) {
-      _log('Rejected packet from ${packet.senderId}: auth failed');
-      return;
-    }
-
-    if (packet.receiverId == myUid) {
-      // Message is for me
-      final plaintext = _crypto.decrypt(
-          packet.encryptedPayload, packet.senderId, myUid);
-      final msg = MeshMessage(
-        messageId: packet.messageId,
-        senderId: packet.senderId,
-        receiverId: myUid,
-        messageText: plaintext,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(packet.timestamp),
-        deliveryStatus: MeshDeliveryStatus.delivered,
-        hopCount: packet.hopCount,
-        encryptedPayload: packet.encryptedPayload,
-      );
-      await _db.insertMessage(msg);
-      _incomingController.add(msg);
-      _log('Received message for me: ${packet.messageId}');
-    } else if (packet.hopCount < kMaxHops) {
-      // Relay to recipient if in range
-      final relayPeer = _peers[packet.receiverId];
-      if (relayPeer != null) {
-        final relayMsg = MeshMessage(
-          messageId: packet.messageId,
-          senderId: packet.senderId,
-          receiverId: packet.receiverId,
-          messageText: '',
-          timestamp: DateTime.fromMillisecondsSinceEpoch(packet.timestamp),
-          deliveryStatus: MeshDeliveryStatus.relayed,
-          hopCount: packet.hopCount + 1,
-          encryptedPayload: packet.encryptedPayload,
-        );
-        await _sendToPeer(relayPeer, relayMsg);
-        _log('Relayed ${packet.messageId} → ${packet.receiverId} (hop ${packet.hopCount + 1})');
-      } else {
-        // Store for later relay
-        final pendingRelay = MeshMessage(
-          messageId: packet.messageId,
-          senderId: packet.senderId,
-          receiverId: packet.receiverId,
-          messageText: '',
-          timestamp: DateTime.fromMillisecondsSinceEpoch(packet.timestamp),
-          deliveryStatus: MeshDeliveryStatus.relayed,
-          hopCount: packet.hopCount + 1,
-          encryptedPayload: packet.encryptedPayload,
-        );
-        await _db.insertMessage(pendingRelay);
-      }
+      final ok = await _sendToEndpoint(endpointId, msg);
+      if (ok) await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
     }
   }
 

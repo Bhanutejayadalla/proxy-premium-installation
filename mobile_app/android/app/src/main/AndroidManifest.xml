@@ -30,6 +30,14 @@
         android:maxSdkVersion="29"/>
     <uses-permission android:name="android.permission.CAMERA"/>
 
+    <!-- Wi-Fi + Nearby Connections (Google Nearby API) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Android 13+ Nearby Wi-Fi Devices permission -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
     <!-- Declare BLE as optional so the app installs on non-BLE devices -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
 
