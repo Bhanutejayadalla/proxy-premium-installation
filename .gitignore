@@ -90,8 +90,8 @@ mobile_app/android/captures/
 *.keystore
 
 # Firebase/sensitive files (Keep these commented to allow team collaboration)
-google-services.json
-firebase_options.dart
+# google-services.json
+# firebase_options.dart
 
 # IDE files
 .vscode/

@@ -14,8 +14,8 @@ import 'package:path/path.dart' as p;
 ///      from Cloudinary Dashboard → Settings → Access Keys.
 class CloudinaryService {
   // ── FILL THESE IN from your Cloudinary Dashboard / Settings ──
-  static const String cloudName = '';       // e.g. 'dxyz1234abc'
-  static const String uploadPreset = '';  // e.g. 'proxi_unsigned'
+  static const String cloudName = 'ds9dmq1ob';       // e.g. 'dxyz1234abc'
+  static const String uploadPreset = 'proxi-social';  // e.g. 'proxi_unsigned'
 
   // ── For deletion (Settings → Access Keys) ──
   static const String apiKey = '';      // e.g. '123456789012345'
