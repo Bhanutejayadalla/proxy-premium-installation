@@ -1,0 +1,273 @@
+# PROXI PREMIUM — Installation & APK Build Guide
+# ================================================
+#
+# This file explains how to:
+#   1. Build the Proxi Premium APK from source
+#   2. Install the APK on a phone via USB
+#   3. Install from a downloaded APK file
+#
+# App Package: com.proxi.premium
+# Firebase Project: proxi-version2
+# ================================================
+
+
+# ═══════════════════════════════════════════════════
+#  PART 1: BUILD THE APK FROM SOURCE
+# ═══════════════════════════════════════════════════
+
+## Prerequisites
+
+  - Windows PC with Flutter 3.0+ installed
+  - Android SDK installed (via Android Studio or standalone)
+  - USB data cable (not charge-only)
+  - Project source code on your machine
+
+## Step 1 — Open Terminal in the Project
+
+  Open PowerShell or Command Prompt and navigate to the mobile_app folder:
+
+    cd D:\Proxi_Social_Connectivity - Copy\mobile_app
+
+## Step 2 — Install Dependencies
+
+    flutter pub get
+
+## Step 3 — Build Release APK (Recommended)
+
+  This creates a small, optimized APK ready for distribution:
+
+    flutter build apk --release
+
+  Output file location:
+    mobile_app\build\app\outputs\flutter-apk\app-release.apk
+
+  Typical size: ~20-25 MB
+
+## Step 4 — Build APK for Older Devices (arm32)
+
+  If target phones are older (pre-2017), build a 32-bit version:
+
+    flutter build apk --release --target-platform android-arm
+
+  Output file location:
+    mobile_app\build\app\outputs\flutter-apk\app-release.apk
+
+## Step 5 — Build Debug APK (For Testing Only)
+
+  Debug APKs are larger (~150-180 MB) but include dev tools and logs:
+
+    flutter build apk --debug
+
+  Output file location:
+    mobile_app\build\app\outputs\flutter-apk\app-debug.apk
+
+## Step 6 — Build Split APKs (Per ABI)
+
+  Creates separate APKs for each CPU architecture (smallest possible size):
+
+    flutter build apk --split-per-abi --release
+
+  Output files:
+    app-arm64-v8a-release.apk    (~20 MB, for modern phones)
+    app-armeabi-v7a-release.apk  (~18 MB, for older phones)
+    app-x86_64-release.apk       (~21 MB, for emulators)
+
+## Step 7 — Rename and Copy APK
+
+  After building, rename the APK to "proxi-premium.apk":
+
+    PowerShell:
+      Copy-Item "build\app\outputs\flutter-apk\app-release.apk" "..\vercel-deploy\proxi-premium.apk"
+
+    Or manually copy from:
+      mobile_app\build\app\outputs\flutter-apk\app-release.apk
+    To:
+      vercel-deploy\proxi-premium.apk
+
+
+# ═══════════════════════════════════════════════════
+#  PART 2: INSTALL APK VIA USB (Recommended)
+# ═══════════════════════════════════════════════════
+
+## Method A — Direct Install with Flutter Run
+
+  This builds AND installs in one step:
+
+  1. Enable Developer Mode on your phone:
+     - Settings → About Phone → tap "Build Number" 7 times
+
+  2. Enable USB Debugging:
+     - Settings → Developer Options → USB Debugging → ON
+
+  3. Connect phone via USB data cable
+
+  4. Accept "Allow USB Debugging" popup on your phone
+     - Check "Always allow from this computer"
+
+  5. Verify connection:
+       adb devices
+
+     Expected output:
+       List of devices attached
+       RF8N20XXXXX   device
+
+  6. Run the app:
+       cd mobile_app
+       flutter run --release
+
+     This builds the release APK and installs it directly on your phone.
+
+## Method B — Install a Pre-Built APK via ADB
+
+  If you already have the APK file (proxi-premium.apk):
+
+  1. Connect phone via USB (with USB Debugging enabled, see above)
+
+  2. Install using ADB:
+       adb install proxi-premium.apk
+
+     If a previous version exists:
+       adb install -r proxi-premium.apk
+
+  3. If you get "INSTALL_FAILED_UPDATE_INCOMPATIBLE":
+       adb uninstall com.proxi.premium
+       adb install proxi-premium.apk
+
+  4. The app appears in your app drawer as "Proxi Premium"
+
+## Method C — Transfer APK File via USB
+
+  If ADB is not available:
+
+  1. Connect phone via USB cable
+  2. Select "File Transfer (MTP)" mode on your phone
+  3. Open File Explorer on your PC
+  4. Navigate to your phone's storage → Download folder
+  5. Copy the APK file:
+       From: mobile_app\build\app\outputs\flutter-apk\app-release.apk
+       To:   Phone\Internal Storage\Download\proxi-premium.apk
+  6. On your phone, open Files app → Downloads
+  7. Tap proxi-premium.apk
+  8. Allow "Install from Unknown Sources" if prompted
+  9. Tap Install
+
+
+# ═══════════════════════════════════════════════════
+#  PART 3: INSTALL FROM DOWNLOADED APK
+# ═══════════════════════════════════════════════════
+
+  If someone sends you the APK or you download it from the Vercel page:
+
+  1. Download proxi-premium.apk to your phone
+  2. Open your Downloads folder (or notification tray → tap the download)
+  3. Tap the APK file
+  4. Android will ask to allow installs from this source:
+     - Tap "Settings" → Enable "Allow from this source" → go back
+  5. Tap "Install"
+  6. Once done, tap "Open" to launch Proxi Premium
+
+  Note: This will NOT conflict with the original "Proxi" app.
+  Both apps can be installed side by side because they have
+  different package IDs:
+    - Proxi:         com.example.dual_mode_app
+    - Proxi Premium: com.proxi.premium
+
+
+# ═══════════════════════════════════════════════════
+#  PART 4: TROUBLESHOOTING
+# ═══════════════════════════════════════════════════
+
+  Problem: "No devices found"
+  Solution: Check USB cable (must be data-capable, not charge-only)
+
+  Problem: "unauthorized" in adb devices
+  Solution: Accept the USB debugging popup on your phone
+
+  Problem: "INSTALL_FAILED_UPDATE_INCOMPATIBLE"
+  Solution: Uninstall old version first:
+    adb uninstall com.proxi.premium
+
+  Problem: App crashes immediately after install
+  Solution: Run these commands:
+    cd mobile_app
+    flutter clean
+    flutter pub get
+    flutter run --release
+
+  Problem: Build fails with Gradle errors
+  Solution: Clear Gradle cache:
+    cd mobile_app\android
+    gradlew clean
+    cd ..
+    flutter build apk --release
+
+  Problem: "adb: command not found"
+  Solution: Add Android SDK platform-tools to your PATH:
+    Windows: Add C:\Users\<YOU>\AppData\Local\Android\Sdk\platform-tools to PATH
+    Or run from that folder directly
+
+  Problem: Phone not charging / not detected
+  Solution: Try a different USB port and cable. Front USB ports
+    are often unreliable — use a rear port.
+
+
+# ═══════════════════════════════════════════════════
+#  PART 5: CREATING A SIGNED RELEASE APK
+# ═══════════════════════════════════════════════════
+
+  For publishing to Google Play or secure distribution:
+
+  1. Generate a signing key:
+       keytool -genkey -v -keystore proxi-premium-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias proxi-premium
+
+  2. Create mobile_app/android/key.properties:
+       storePassword=<your-password>
+       keyPassword=<your-password>
+       keyAlias=proxi-premium
+       storeFile=<path-to>/proxi-premium-key.jks
+
+  3. Update mobile_app/android/app/build.gradle.kts to reference the keystore
+     (see Flutter docs: https://docs.flutter.dev/deployment/android#signing-the-app)
+
+  4. Build signed APK:
+       flutter build apk --release
+
+  5. Build App Bundle (for Play Store):
+       flutter build appbundle --release
+
+
+# ═══════════════════════════════════════════════════
+#  QUICK REFERENCE — COMMON COMMANDS
+# ═══════════════════════════════════════════════════
+
+  # Check connected devices
+  flutter devices
+  adb devices
+
+  # Install dependencies
+  flutter pub get
+
+  # Run on connected phone
+  flutter run --release
+
+  # Build release APK
+  flutter build apk --release
+
+  # Build debug APK
+  flutter build apk --debug
+
+  # Build split APKs (per architecture)
+  flutter build apk --split-per-abi --release
+
+  # Install APK via ADB
+  adb install proxi-premium.apk
+
+  # Uninstall app
+  adb uninstall com.proxi.premium
+
+  # Clean build cache
+  flutter clean
+
+  # View app logs
+  flutter logs
+  adb logcat | grep "flutter"

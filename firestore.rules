@@ -1,0 +1,234 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Check that only follower/following array fields are being modified
+    function onlyFollowFields() {
+      let allowed = ['followers', 'following',
+                     'followers_formal', 'followers_casual',
+                     'following_formal', 'following_casual'].toSet();
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+    }
+
+    // ── Users ─────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      // Owner can update anything; other signed-in users can only
+      // modify follower / following arrays (for follow/unfollow).
+      allow update: if isOwner(userId)
+                    || (isSignedIn() && onlyFollowFields());
+      allow delete: if isOwner(userId);
+    }
+
+    // ── Posts ─────────────────────────────────────────────────
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // likes, comments from any user
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Stories ───────────────────────────────────────────────
+    match /stories/{storyId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Reels ─────────────────────────────────────────────────
+    match /reels/{reelId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // view counts, likes
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Chats & Messages ──────────────────────────────────────
+    match /chats/{chatId} {
+      allow read, create, update, delete: if isSignedIn();
+
+      match /messages/{messageId} {
+        allow read, create, delete: if isSignedIn();
+      }
+    }
+
+    // ── Mesh Messages (offline-first, cloud-synced) ───────────
+    match /mesh_messages/{msgId} {
+      // Only sender or receiver may read
+      allow read: if isSignedIn()
+                  && (resource.data.sender_id == request.auth.uid
+                      || resource.data.receiver_id == request.auth.uid);
+      // Only the sender may upload their own messages
+      allow create: if isSignedIn()
+                    && request.resource.data.sender_id == request.auth.uid;
+      // Nobody can modify or delete synced messages
+      allow update, delete: if false;
+    }
+
+    // ── Group Chats & Messages ────────────────────────────────
+    match /group_chats/{groupId} {
+      allow read, create, update: if isSignedIn();
+      // Only the creator of the group can delete the whole group chat
+      allow delete: if isSignedIn()
+                    && resource.data.creator == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow read, create, delete: if isSignedIn();
+      }
+    }
+
+    // ── Notifications ─────────────────────────────────────────
+    match /notifications/{notifId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+    }
+
+    // ── Jobs ──────────────────────────────────────────────────
+    match /jobs/{jobId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // applicants can apply
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Connections ───────────────────────────────────────────
+    match /connections/{connId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.from == request.auth.uid;
+      allow update: if isSignedIn()
+                    && (resource.data.from == request.auth.uid
+                        || resource.data.to == request.auth.uid);
+      allow delete: if isSignedIn()
+                    && (resource.data.from == request.auth.uid
+                        || resource.data.to == request.auth.uid);
+    }
+
+    // ── Projects ──────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Study Groups ──────────────────────────────────────────
+    match /study_groups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Skill Exchanges ───────────────────────────────────────
+    match /skill_exchanges/{skillId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.user_id == request.auth.uid;
+      allow update: if isSignedIn()
+                    && resource.data.user_id == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.user_id == request.auth.uid;
+    }
+
+    // ── Communities ───────────────────────────────────────────
+    match /communities/{communityId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Community Posts ───────────────────────────────────────
+    match /community_posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.author_id == request.auth.uid;
+      allow update: if isSignedIn();   // votes, comments
+      allow delete: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Events ────────────────────────────────────────────────
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.creator_id == request.auth.uid;
+      allow update: if isSignedIn();   // registration
+      allow delete: if isSignedIn()
+                    && resource.data.creator_id == request.auth.uid;
+    }
+
+    // ── Venues ────────────────────────────────────────────────
+    match /venues/{venueId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // ── Venue Bookings ────────────────────────────────────────
+    match /venue_bookings/{bookingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.booker_id == request.auth.uid;
+      allow update: if isSignedIn();   // join booking
+      allow delete: if isSignedIn()
+                    && resource.data.booker_id == request.auth.uid;
+    }
+
+    // ── Campus Locations ──────────────────────────────────────
+    match /campus_locations/{locId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // ── Shared Resources ──────────────────────────────────────
+    match /shared_resources/{resId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.uploader_id == request.auth.uid;
+      allow update: if isSignedIn();   // likes, downloads
+      allow delete: if isSignedIn()
+                    && resource.data.uploader_id == request.auth.uid;
+    }
+
+    // ── User Markers (Custom Map Pins) ────────────────────────
+    match /user_markers/{markerId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn()
+                    && resource.data.createdBy == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.createdBy == request.auth.uid;
+    }
+  }
+}

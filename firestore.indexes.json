@@ -1,0 +1,156 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "mode", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "author_id", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "stories",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "mode", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reels",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "mode", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "user_id", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "connections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "to", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "connections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "from", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "connections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "from", "order": "ASCENDING" },
+        { "fieldPath": "to", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participants", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "last_timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "group_chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "members", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "last_timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "venue_bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "venue_id", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "skill_exchanges",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" } 
+      ]
+    },
+    {
+      "collectionGroup": "community_posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "community_id", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "start_time", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "shared_resources",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "subject", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "domain", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "study_groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "creator_id", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
