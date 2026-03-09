@@ -128,11 +128,25 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 
   Future<void> _toggleMesh(bool value) async {
     final state = Provider.of<AppState>(context, listen: false);
-    setState(() => _meshActive = value);
+    final myUid = state.currentUser?.uid ?? '';
 
     if (value) {
+      // Ensure permissions before starting.
+      final ok = await state.meshService.init(myUid);
+      if (!ok) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bluetooth and Location permissions are required for Mesh Chat.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      setState(() => _meshActive = true);
       await state.meshService.start();
     } else {
+      setState(() => _meshActive = false);
       await state.meshService.stop();
     }
   }
@@ -306,13 +320,16 @@ class _MeshStatusBanner extends StatelessWidget {
         children: [
           const Icon(Icons.bluetooth_searching,
               size: 14, color: Colors.greenAccent),
+          const SizedBox(width: 4),
+          const Icon(Icons.wifi, size: 14, color: Colors.greenAccent),
           const SizedBox(width: 6),
-          Text(
-            peerCount == 0
-                ? 'Scanning for nearby devices…'
-                : '$peerCount nearby device${peerCount > 1 ? 's' : ''} in mesh range',
-            style: const TextStyle(
-                fontSize: 11, color: Colors.greenAccent),
+          Expanded(
+            child: Text(
+              peerCount == 0
+                  ? 'Scanning via BLE + Wi-Fi Direct…'
+                  : '$peerCount nearby device${peerCount > 1 ? 's' : ''} connected (BLE + Wi-Fi)',
+              style: const TextStyle(fontSize: 11, color: Colors.greenAccent),
+            ),
           ),
         ],
       ),

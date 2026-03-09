@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:nearby_connections/nearby_connections.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -33,6 +34,13 @@ class MeshService extends ChangeNotifier {
   final Map<String, String> _endpointToUid = {};
   final Map<String, String> _connectedPeers = {};
 
+  // Track known endpoints that have been found but not yet connected,
+  // so we can attempt reconnect after a disconnect.
+  final Set<String> _knownEndpoints = {};
+
+  // Health-check timer — restarts discovery/advertising if peers drop.
+  Timer? _healthTimer;
+
   List<MeshPeer> get peers => _connectedPeers.entries
       .map((e) => MeshPeer(uid: e.key, endpointId: e.value))
       .toList();
@@ -48,13 +56,27 @@ class MeshService extends ChangeNotifier {
   }
 
   Future<bool> _requestPermissions() async {
-    final results = await [
+    // Core BLE permissions (Android 12+ requires explicit runtime grants).
+    final bleResults = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.bluetoothAdvertise,
       Permission.location,
     ].request();
-    return results.values.every((s) => s.isGranted);
+
+    final bleOk = bleResults.values.every((s) => s.isGranted);
+
+    // Wi-Fi Direct permissions.
+    // NEARBY_WIFI_DEVICES is required on Android 13+ for Wi-Fi P2P.
+    final wifiResults = await [
+      Permission.nearbyWifiDevices,
+    ].request();
+
+    final wifiOk = wifiResults[Permission.nearbyWifiDevices]?.isGranted == true;
+    _log('BLE permissions ok=$bleOk, NEARBY_WIFI_DEVICES ok=$wifiOk');
+
+    // BLE must be granted; Wi-Fi Direct is optional (falls back to BLE only).
+    return bleOk;
   }
 
   Future<void> start() async {
@@ -62,6 +84,19 @@ class MeshService extends ChangeNotifier {
     _isRunning = true;
     notifyListeners();
     _log('Starting mesh for $_myUid');
+    await _startNearby();
+
+    // Health-check: if no peers connect within 30s, restart discovery.
+    _healthTimer?.cancel();
+    _healthTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_isRunning && _connectedPeers.isEmpty) {
+        _log('Health-check: no peers — restarting discovery/advertising');
+        _restartNearby();
+      }
+    });
+  }
+
+  Future<void> _startNearby() async {
     try {
       final adOk = await Nearby().startAdvertising(
         _myUid!,
@@ -72,6 +107,11 @@ class MeshService extends ChangeNotifier {
         serviceId: kProxiServiceId,
       );
       _log('Advertising started: $adOk');
+    } catch (e) {
+      _log('startAdvertising error: $e');
+    }
+
+    try {
       final disOk = await Nearby().startDiscovery(
         _myUid!,
         Strategy.P2P_CLUSTER,
@@ -81,14 +121,23 @@ class MeshService extends ChangeNotifier {
       );
       _log('Discovery started: $disOk');
     } catch (e) {
-      _log('Start error: $e');
-      _isRunning = false;
-      notifyListeners();
+      _log('startDiscovery error: $e');
     }
+  }
+
+  Future<void> _restartNearby() async {
+    try {
+      await Nearby().stopAdvertising();
+      await Nearby().stopDiscovery();
+    } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (_isRunning) await _startNearby();
   }
 
   Future<void> stop() async {
     if (!_isRunning) return;
+    _healthTimer?.cancel();
+    _healthTimer = null;
     try {
       await Nearby().stopAdvertising();
       await Nearby().stopDiscovery();
@@ -97,6 +146,7 @@ class MeshService extends ChangeNotifier {
     _isRunning = false;
     _connectedPeers.clear();
     _endpointToUid.clear();
+    _knownEndpoints.clear();
     notifyListeners();
     _log('Mesh stopped');
   }
@@ -104,16 +154,20 @@ class MeshService extends ChangeNotifier {
   void _onEndpointFound(String endpointId, String endpointName, String serviceId) {
     _log('Endpoint found: $endpointName ($endpointId)');
     _endpointToUid[endpointId] = endpointName;
-    Nearby().requestConnection(
-      _myUid!,
-      endpointId,
-      onConnectionInitiated: _onConnectionInitiated,
-      onConnectionResult: _onConnectionResult,
-      onDisconnected: _onDisconnected,
-    ).catchError((e) {
-      _log('requestConnection error: $e');
-      return false;
-    });
+    _knownEndpoints.add(endpointId);
+    // Request connection only if not already connected/connecting.
+    if (!_connectedPeers.containsValue(endpointId)) {
+      Nearby().requestConnection(
+        _myUid!,
+        endpointId,
+        onConnectionInitiated: _onConnectionInitiated,
+        onConnectionResult: _onConnectionResult,
+        onDisconnected: _onDisconnected,
+      ).catchError((e) {
+        _log('requestConnection error for $endpointId: $e');
+        return false;
+      });
+    }
   }
 
   void _onEndpointLost(String? endpointId) {
@@ -122,7 +176,7 @@ class MeshService extends ChangeNotifier {
     if (uid != null) {
       _connectedPeers.remove(uid);
       notifyListeners();
-      _log('Endpoint lost: $uid');
+      _log('Endpoint lost: $uid ($endpointId)');
     }
   }
 
@@ -160,7 +214,15 @@ class MeshService extends ChangeNotifier {
     if (uid != null) {
       _connectedPeers.remove(uid);
       notifyListeners();
-      _log('Peer disconnected: $uid');
+      _log('Peer disconnected: $uid — will retry via discovery');
+    }
+    // Trigger a discovery restart so we can reconnect shortly.
+    if (_isRunning) {
+      Future.delayed(const Duration(seconds: 3), () {
+        if (_isRunning && !_connectedPeers.values.contains(endpointId)) {
+          _restartNearby();
+        }
+      });
     }
   }
 
@@ -198,29 +260,37 @@ class MeshService extends ChangeNotifier {
         _log('Decrypt error: $e');
       }
     } else if (packet.hopCount < kMaxHops) {
-      final relayId = _connectedPeers[packet.receiverId];
-      if (relayId != null) {
-        try {
-          await Nearby().sendBytesPayload(
-            relayId,
-            Uint8List.fromList(utf8.encode(packet.withIncrementedHop().toJson())),
-          );
-          _log('Relayed ${packet.messageId}');
-        } catch (e) {
-          _log('Relay error: $e');
-        }
-      } else {
-        await _db.insertMessage(MeshMessage(
-          messageId: packet.messageId,
-          senderId: packet.senderId,
-          receiverId: packet.receiverId,
-          messageText: '',
-          timestamp: DateTime.fromMillisecondsSinceEpoch(packet.timestamp),
-          deliveryStatus: MeshDeliveryStatus.relayed,
-          hopCount: packet.hopCount + 1,
-          encryptedPayload: packet.encryptedPayload,
-        ));
+      // Relay to ALL connected peers (not just the first match) to improve delivery.
+      await _relayPacket(packet);
+    }
+  }
+
+  Future<void> _relayPacket(MeshWirePacket packet) async {
+    final hopPacket = packet.withIncrementedHop();
+    final bytes = Uint8List.fromList(utf8.encode(hopPacket.toJson()));
+    bool relayed = false;
+    for (final entry in _connectedPeers.entries) {
+      if (entry.key == packet.senderId) continue; // Don't echo back to sender.
+      try {
+        await Nearby().sendBytesPayload(entry.value, bytes);
+        _log('Relayed ${packet.messageId} to ${entry.key}');
+        relayed = true;
+      } catch (e) {
+        _log('Relay error to ${entry.key}: $e');
       }
+    }
+    if (!relayed) {
+      // Store for later delivery when a peer connects.
+      await _db.insertMessage(MeshMessage(
+        messageId: packet.messageId,
+        senderId: packet.senderId,
+        receiverId: packet.receiverId,
+        messageText: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(packet.timestamp),
+        deliveryStatus: MeshDeliveryStatus.relayed,
+        hopCount: hopPacket.hopCount,
+        encryptedPayload: packet.encryptedPayload,
+      ));
     }
   }
 
@@ -245,6 +315,7 @@ class MeshService extends ChangeNotifier {
         await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
       }
     } else {
+      // Broadcast relay to all peers — message will hop toward destination.
       await _broadcastRelay(msg);
     }
     notifyListeners();
@@ -275,13 +346,15 @@ class MeshService extends ChangeNotifier {
 
   Future<void> _broadcastRelay(MeshMessage msg) async {
     if (msg.hopCount >= kMaxHops) return;
+    // Send to ALL connected peers; each will forward toward the destination.
+    bool anyOk = false;
     for (final entry in _connectedPeers.entries) {
       if (entry.key == msg.senderId) continue;
       final ok = await _sendToEndpoint(entry.value, msg);
-      if (ok) {
-        await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
-        break;
-      }
+      if (ok) anyOk = true;
+    }
+    if (anyOk) {
+      await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
     }
   }
 

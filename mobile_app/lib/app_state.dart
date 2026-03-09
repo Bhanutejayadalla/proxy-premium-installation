@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' show min;
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/auth_service.dart';
@@ -499,12 +500,15 @@ class AppState extends ChangeNotifier {
   /// Whether BLE advertising is currently active.
   bool isBleAdvertising = false;
 
+  /// Continuous BLE scan subscription — active while NearbyScreen is open.
+  StreamSubscription<Map<String, BleDiscoveredUser>>? _continuousBleSub;
+
   /// Start BLE advertising (called on login and when entering BLE mode).
+  /// Broadcasts uid + username + device_identifier so other Proxi devices
+  /// can identify this user without a network lookup.
   Future<void> startBleAdvertising() async {
     if (currentUser == null) return;
     try {
-      // Explicitly request BLUETOOTH_ADVERTISE permission before calling native code.
-      // On Android 12+, advertising silently fails without this permission at runtime.
       if (Platform.isAndroid) {
         final advPerm = await Permission.bluetoothAdvertise.request();
         if (!advPerm.isGranted) {
@@ -519,9 +523,16 @@ class AppState extends ChangeNotifier {
         debugPrint('[BLE] Advertising not supported on this device (no peripheral mode)');
         return;
       }
-      await bleAdvertiser.startAdvertising(currentUser!.uid);
+      // Derive a short stable device identifier (first 8 chars of uid + platform).
+      final deviceId = '${currentUser!.uid.substring(0, min(8, currentUser!.uid.length))}_A';
+      await bleAdvertiser.startAdvertising(
+        currentUser!.uid,
+        username: currentUser!.username,
+        deviceId: deviceId,
+      );
       isBleAdvertising = bleAdvertiser.isAdvertising;
-      debugPrint('[BLE] Advertising active: $isBleAdvertising');
+      debugPrint('[BLE] Advertising active: $isBleAdvertising '
+          '(uid=${currentUser!.uid.substring(0, 8)}, username=${currentUser!.username})');
       notifyListeners();
     } catch (e) {
       debugPrint('[BLE] startBleAdvertising error: $e');
@@ -537,6 +548,82 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
     isBleAdvertising = false;
     notifyListeners();
+  }
+
+  // ── Continuous BLE Discovery API ─────────────────────────────────────────
+
+  /// Start continuous BLE scanning: advertise + scan, restart every 9s.
+  /// Calls [notifyListeners] whenever new devices are found.
+  /// Call this when the NearbyScreen opens (BLE mode).
+  Future<void> startContinuousBleScan() async {
+    if (currentUser == null) return;
+
+    // Ensure advertise + scan permissions before starting.
+    final ready = await ble.init();
+    if (!ready) {
+      bleScanError = 'Bluetooth permissions denied. Please grant Bluetooth and Location permissions.';
+      notifyListeners();
+      return;
+    }
+
+    bleScanError = '';
+    bleProxiUsersDetected = 0;
+
+    // Start advertising so other devices can discover us.
+    await startBleAdvertising();
+
+    // Subscribe to the continuous scan stream.
+    _continuousBleSub?.cancel();
+    _continuousBleSub = ble.discoveredUsersStream.listen((usersMap) async {
+      final List<AppUser> foundUsers = [];
+      for (final bleUser in usersMap.values) {
+        if (bleUser.uid == currentUser?.uid) continue;
+
+        // Prefer cache profile; fall back to data from BLE advertisement.
+        final cached = await userCache.getCachedUserByUidPrefix(bleUser.uid);
+        final resolvedUid = cached?['uid'] as String? ?? bleUser.uid;
+        final resolvedName = (cached != null)
+            ? (cached['username'] as String? ?? 'Proxi User')
+            : (bleUser.username.isNotEmpty ? bleUser.username : 'Proxi User');
+
+        if (cached != null) {
+          foundUsers.add(AppUser(
+            uid: resolvedUid,
+            username: resolvedName,
+            avatarFormal: cached['avatar_formal'] ?? '',
+            avatarCasual: cached['avatar_casual'] ?? '',
+            bio: cached['bio'] ?? '',
+            headline: cached['headline'] ?? '',
+            fullName: cached['full_name'] ?? '',
+            distanceKm: bleUser.distanceM / 1000,
+          ));
+        } else {
+          foundUsers.add(AppUser(
+            uid: resolvedUid,
+            username: resolvedName,
+            bio: '~${bleUser.distanceM.toStringAsFixed(0)}m away via Bluetooth',
+            distanceKm: bleUser.distanceM / 1000,
+          ));
+        }
+      }
+
+      nearbyUsers = foundUsers
+        ..sort((a, b) => (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999));
+      bleProxiUsersDetected = nearbyUsers.length;
+      notifyListeners();
+    });
+
+    // Kick off the hardware scan.
+    await ble.startContinuousScan(myUid: currentUser!.uid);
+    debugPrint('[BLE] Continuous scan started');
+  }
+
+  /// Stop continuous BLE scanning. Call this when NearbyScreen closes.
+  Future<void> stopContinuousBleScan() async {
+    _continuousBleSub?.cancel();
+    _continuousBleSub = null;
+    await ble.stopContinuousScan();
+    debugPrint('[BLE] Continuous scan stopped');
   }
 
   /// Sync discoverable users to local cache (call when online).

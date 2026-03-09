@@ -1,4 +1,4 @@
-package com.proxi.premium
+﻿package com.proxi.premium
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
@@ -10,6 +10,7 @@ import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -20,7 +21,11 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val TAG = "BLE-Advertiser"
-        private const val PROXI_COMPANY_ID = 0xFF01  // Must match BleService.proxiCompanyId in Dart
+        /** Must match BleService.proxiCompanyId in Dart. */
+        private const val PROXI_COMPANY_ID = 0xFF01
+        /** Must match BleService.proxiServiceUuid in Dart (scan-response service data). */
+        private val PROXI_SERVICE_UUID =
+            ParcelUuid.fromString("0000FF01-0000-1000-8000-00805F9B34FB")
     }
 
     private val CHANNEL = "com.proxi.ble_advertiser"
@@ -38,8 +43,10 @@ class MainActivity : FlutterActivity() {
                 Log.d(TAG, "MethodChannel call: ${call.method}")
                 when (call.method) {
                     "startAdvertising" -> {
-                        val uid = call.argument<String>("uid") ?: ""
-                        startAdvertising(uid, result)
+                        val uid      = call.argument<String>("uid")      ?: ""
+                        val username = call.argument<String>("username") ?: ""
+                        val deviceId = call.argument<String>("deviceId") ?: ""
+                        startAdvertising(uid, username, deviceId, result)
                     }
                     "stopAdvertising" -> {
                         stopAdvertising(result)
@@ -78,20 +85,30 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun startAdvertising(uid: String, result: MethodChannel.Result) {
+    private fun startAdvertising(
+        uid: String,
+        username: String,
+        deviceId: String,
+        result: MethodChannel.Result
+    ) {
         val uidPreview = uid.take(8)
-        Log.d(TAG, "startAdvertising: uid=$uidPreview…, currentlyAdvertising=$isAdvertising")
+        Log.d(TAG, "startAdvertising: uid=${uidPreview}..., username=$username, " +
+                "currentlyAdvertising=$isAdvertising")
 
         if (isAdvertising) {
-            Log.d(TAG, "Already advertising — returning success")
+            Log.d(TAG, "Already advertising â€” returning success")
             result.success(true)
             return
         }
 
         // Check BLUETOOTH_ADVERTISE permission (Android 12+)
         if (!hasAdvertisePermission()) {
-            Log.e(TAG, "BLUETOOTH_ADVERTISE permission not granted — cannot advertise")
-            result.error("PERMISSION_DENIED", "BLUETOOTH_ADVERTISE permission not granted. Grant it in app settings.", null)
+            Log.e(TAG, "BLUETOOTH_ADVERTISE permission not granted â€” cannot advertise")
+            result.error(
+                "PERMISSION_DENIED",
+                "BLUETOOTH_ADVERTISE permission not granted. Grant it in app settings.",
+                null
+            )
             return
         }
 
@@ -105,56 +122,68 @@ class MainActivity : FlutterActivity() {
 
         advertiser = adapter.bluetoothLeAdvertiser
         if (advertiser == null) {
-            Log.e(TAG, "bluetoothLeAdvertiser is null — peripheral mode not supported on this device")
-            result.error("NO_ADVERTISER", "BLE peripheral mode not supported on this device", null)
+            Log.e(TAG, "bluetoothLeAdvertiser is null â€” peripheral mode not supported")
+            result.error(
+                "NO_ADVERTISER",
+                "BLE peripheral mode not supported on this device",
+                null
+            )
             return
         }
 
-        // Encode UID into manufacturer data:
-        //   BLE advert limit = 31 bytes total.
-        //   Flags(3) + Mfg type(1) + length(1) + company_id(2) + payload ≤ 31 → max 24 bytes payload.
-        //   We use 20 bytes (truncated UID) to stay safely under limit.
-        //   Scanner looks for company ID 0xFF01 (= 65281) and decodes the bytes as UTF-8 UID.
+        // â”€â”€ Advertisement data (31-byte window) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Flags(3) + Mfg type(1) + length(1) + companyId(2) + payload â‰¤ 31 bytes
+        // â†’ max 24 bytes payload; we use 20 bytes (truncated UID) to stay safe.
         val uidBytes = uid.toByteArray(Charsets.UTF_8).take(20).toByteArray()
-        Log.d(TAG, "Advertising with companyId=0x${PROXI_COMPANY_ID.toString(16).uppercase()} (${PROXI_COMPANY_ID}), uidBytes.size=${uidBytes.size}")
+        Log.d(TAG, "Adv data: companyId=0x${PROXI_COMPANY_ID.toString(16).uppercase()}, " +
+                "uidBytes.size=${uidBytes.size}")
 
-        val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)  // Most responsive
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)      // Maximum range
-            .setConnectable(false)
-            .setTimeout(0) // Advertise indefinitely (0 = no timeout)
-            .build()
-
-        val data = AdvertiseData.Builder()
-            .setIncludeDeviceName(false)         // Save packet space
-            .setIncludeTxPowerLevel(false)       // Save packet space
-            // No service UUID: takes 18 bytes and pushes packet OVER the 31-byte BLE limit.
-            // Proxi identification uses manufacturer data company ID 0xFF01 instead.
+        val advData = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
+            .setIncludeTxPowerLevel(false)
             .addManufacturerData(PROXI_COMPANY_ID, uidBytes)
             .build()
 
-        Log.d(TAG, "AdvertiseSettings: mode=LOW_LATENCY, txPower=HIGH, connectable=false, timeout=0")
-        Log.d(TAG, "AdvertiseData: includeDeviceName=false, mfData companyId=$PROXI_COMPANY_ID bytes=${uidBytes.size}")
+        // â”€â”€ Scan response (second 31-byte window) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Format: username\x00deviceId  (null-delimited, max 26 useful bytes)
+        // Scanner reads this via advertisementData.serviceData[PROXI_SERVICE_UUID].
+        val usernamePrefix = username.take(12)       // max 12 chars for username
+        val deviceIdPrefix = deviceId.take(8)        // max 8 chars for device id
+        val scanRespPayload = "$usernamePrefix\u0000$deviceIdPrefix"
+            .toByteArray(Charsets.UTF_8)
+        Log.d(TAG, "Scan response: username='$usernamePrefix', deviceId='$deviceIdPrefix', " +
+                "payloadBytes=${scanRespPayload.size}")
+
+        val scanRespData = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
+            .addServiceData(PROXI_SERVICE_UUID, scanRespPayload)
+            .build()
+
+        val settings = AdvertiseSettings.Builder()
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+            .setConnectable(false)
+            .setTimeout(0) // Advertise indefinitely
+            .build()
 
         advertiseCallback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
                 isAdvertising = true
-                Log.i(TAG, ">>> BLE Advertising STARTED SUCCESSFULLY for uid=$uidPreview")
+                Log.i(TAG, ">>> BLE Advertising STARTED for uid=$uidPreview, username=$usernamePrefix")
                 result.success(true)
             }
 
             override fun onStartFailure(errorCode: Int) {
                 isAdvertising = false
                 val errorMsg = when (errorCode) {
-                    ADVERTISE_FAILED_ALREADY_STARTED -> "ADVERTISE_FAILED_ALREADY_STARTED (1)"
-                    ADVERTISE_FAILED_DATA_TOO_LARGE -> "ADVERTISE_FAILED_DATA_TOO_LARGE (2)"
+                    ADVERTISE_FAILED_ALREADY_STARTED     -> "ADVERTISE_FAILED_ALREADY_STARTED (1)"
+                    ADVERTISE_FAILED_DATA_TOO_LARGE      -> "ADVERTISE_FAILED_DATA_TOO_LARGE (2)"
                     ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "ADVERTISE_FAILED_FEATURE_UNSUPPORTED (3)"
-                    ADVERTISE_FAILED_INTERNAL_ERROR -> "ADVERTISE_FAILED_INTERNAL_ERROR (4)"
-                    ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "ADVERTISE_FAILED_TOO_MANY_ADVERTISERS (5)"
+                    ADVERTISE_FAILED_INTERNAL_ERROR      -> "ADVERTISE_FAILED_INTERNAL_ERROR (4)"
+                    ADVERTISE_FAILED_TOO_MANY_ADVERTISERS-> "ADVERTISE_FAILED_TOO_MANY_ADVERTISERS (5)"
                     else -> "UNKNOWN_ERROR_$errorCode"
                 }
                 Log.e(TAG, ">>> BLE Advertising FAILED: $errorMsg")
-                // Handle already-started as success (another call may have started it)
                 if (errorCode == ADVERTISE_FAILED_ALREADY_STARTED) {
                     isAdvertising = true
                     result.success(true)
@@ -165,11 +194,11 @@ class MainActivity : FlutterActivity() {
         }
 
         try {
-            advertiser?.startAdvertising(settings, data, advertiseCallback)
-            Log.d(TAG, "startAdvertising() called on BluetoothLeAdvertiser — waiting for callback...")
+            advertiser?.startAdvertising(settings, advData, scanRespData, advertiseCallback)
+            Log.d(TAG, "startAdvertising() called â€” waiting for callback...")
         } catch (e: SecurityException) {
             Log.e(TAG, "SecurityException in startAdvertising: ${e.message}")
-            result.error("PERMISSION", "Bluetooth advertise permission denied at runtime: ${e.message}", null)
+            result.error("PERMISSION", "Advertise permission denied: ${e.message}", null)
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error in startAdvertising: ${e.message}")
             result.error("ADV_ERROR", "Unexpected error: ${e.message}", null)
@@ -183,7 +212,7 @@ class MainActivity : FlutterActivity() {
                 advertiser?.stopAdvertising(advertiseCallback)
                 Log.i(TAG, "BLE Advertising STOPPED")
             } catch (e: SecurityException) {
-                Log.w(TAG, "SecurityException stopping advertising (permission revoked?): ${e.message}")
+                Log.w(TAG, "SecurityException stopping advertising: ${e.message}")
             } catch (e: Exception) {
                 Log.w(TAG, "Error stopping advertising: ${e.message}")
             }
@@ -194,11 +223,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "onDestroy — stopping advertising")
+        Log.d(TAG, "onDestroy â€” stopping advertising")
         if (advertiser != null && advertiseCallback != null) {
-            try {
-                advertiser?.stopAdvertising(advertiseCallback)
-            } catch (_: Exception) {}
+            try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
         }
         isAdvertising = false
         super.onDestroy()

@@ -20,22 +20,37 @@ class _NearbyScreenState extends State<NearbyScreen> {
   String _errorMessage = '';
   final Set<String> _pendingRequests = {};
   bool _bleAdapterOn = false;
-  bool _locationServiceOn = false;   // permission granted AND service enabled
-  bool _locationServiceEnabled = false; // service switch in system settings
+  bool _locationServiceOn = false;
+  bool _locationServiceEnabled = false;
 
   @override
   void initState() {
     super.initState();
     _refreshAdapterStatus();
-    // Auto-start BLE advertising as soon as user opens the Nearby screen.
-    // This ensures the device is visible BEFORE the other user taps Scan.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Auto-start continuous BLE scan + advertising when screen opens.
+    // Both devices must be advertising AND scanning simultaneously.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final state = Provider.of<AppState>(context, listen: false);
       if (state.discoveryMode == DiscoveryMode.ble) {
-        state.startBleAdvertising();
+        await _refreshAdapterStatus();
+        if (_bleAdapterOn) {
+          setState(() => _status = _ScanStatus.scanning);
+          await state.startContinuousBleScan();
+          // Keep status as scanning while screen is open.
+          if (mounted) setState(() => _status = _ScanStatus.scanning);
+        }
       }
     });
   }
+
+  @override
+  void dispose() {
+    // Stop continuous scan when screen is closed to save battery.
+    final state = Provider.of<AppState>(context, listen: false);
+    state.stopContinuousBleScan();
+    super.dispose();
+  }
+
 
   Future<void> _refreshAdapterStatus() async {
     final state = Provider.of<AppState>(context, listen: false);
@@ -98,41 +113,51 @@ class _NearbyScreenState extends State<NearbyScreen> {
     return true;
   }
 
+  // BLE mode uses continuous scan — button only needed for GPS mode.
+  // In BLE mode the button restarts the scan cycle (useful if user toggled BT off/on).
   void _handleScan() async {
     final state = Provider.of<AppState>(context, listen: false);
-
-    // Refresh adapter status
     await _refreshAdapterStatus();
 
-    // Check permissions first
-    final ok = await _checkPermissions(state.discoveryMode);
-    if (!ok) return;
-
-    setState(() {
-      _status = _ScanStatus.scanning;
-      _errorMessage = '';
-    });
-
-    try {
-      await state.scanNearby();
-
-      if (mounted) {
-        // Check if BLE scan produced an error
-        if (state.bleScanError.isNotEmpty) {
-          setState(() {
-            _status = _ScanStatus.error;
-            _errorMessage = state.bleScanError;
-          });
-        } else {
-          setState(() => _status = _ScanStatus.done);
-        }
-      }
-    } catch (e) {
-      if (mounted) {
+    if (state.discoveryMode == DiscoveryMode.ble) {
+      // Restart continuous scan.
+      if (!_bleAdapterOn) {
         setState(() {
           _status = _ScanStatus.error;
-          _errorMessage = 'Scan failed: $e';
+          _errorMessage = 'Bluetooth is off. Please enable it and try again.';
         });
+        return;
+      }
+      final ok = await _checkPermissions(DiscoveryMode.ble);
+      if (!ok) return;
+      setState(() { _status = _ScanStatus.scanning; _errorMessage = ''; });
+      await state.stopContinuousBleScan();
+      await state.startContinuousBleScan();
+      if (mounted) {
+        if (state.bleScanError.isNotEmpty) {
+          setState(() { _status = _ScanStatus.error; _errorMessage = state.bleScanError; });
+        } else {
+          setState(() => _status = _ScanStatus.scanning);
+        }
+      }
+    } else {
+      // GPS mode — one-shot scan.
+      final ok = await _checkPermissions(DiscoveryMode.gps);
+      if (!ok) return;
+      setState(() { _status = _ScanStatus.scanning; _errorMessage = ''; });
+      try {
+        await state.scanNearby();
+        if (mounted) {
+          if (state.bleScanError.isNotEmpty) {
+            setState(() { _status = _ScanStatus.error; _errorMessage = state.bleScanError; });
+          } else {
+            setState(() => _status = _ScanStatus.done);
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() { _status = _ScanStatus.error; _errorMessage = 'Scan failed: $e'; });
+        }
       }
     }
   }
@@ -203,7 +228,14 @@ class _NearbyScreenState extends State<NearbyScreen> {
                 ),
                 avatar: const Icon(Icons.bluetooth, size: 16),
                 selected: state.discoveryMode == DiscoveryMode.ble,
-                onSelected: (_) => state.setDiscoveryMode(DiscoveryMode.ble),
+                onSelected: (_) async {
+                  state.setDiscoveryMode(DiscoveryMode.ble);
+                  await _refreshAdapterStatus();
+                  if (_bleAdapterOn && mounted) {
+                    setState(() => _status = _ScanStatus.scanning);
+                    await state.startContinuousBleScan();
+                  }
+                },
               ),
               const SizedBox(width: 10),
               ChoiceChip(
@@ -230,27 +262,37 @@ class _NearbyScreenState extends State<NearbyScreen> {
                 ),
                 avatar: const Icon(Icons.gps_fixed, size: 16),
                 selected: state.discoveryMode == DiscoveryMode.gps,
-                onSelected: (_) => state.setDiscoveryMode(DiscoveryMode.gps),
+                onSelected: (_) async {
+                  await state.stopContinuousBleScan();
+                  state.setDiscoveryMode(DiscoveryMode.gps);
+                  if (mounted) setState(() => _status = _ScanStatus.idle);
+                },
               ),
               const Spacer(),
               // Status indicator
               if (_status == _ScanStatus.scanning)
-                const Row(
+                Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SizedBox(
+                    const SizedBox(
                         width: 14,
                         height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2)),
-                    SizedBox(width: 6),
-                    Text("Scanning...",
-                        style: TextStyle(fontSize: 12, color: Colors.blue)),
+                    const SizedBox(width: 6),
+                    Text(
+                      state.discoveryMode == DiscoveryMode.ble
+                          ? (state.nearbyUsers.isEmpty
+                              ? "Scanning..."
+                              : "${state.bleProxiUsersDetected} found")
+                          : "Searching...",
+                      style: const TextStyle(fontSize: 12, color: Colors.blue),
+                    ),
                   ],
                 ),
               if (_status == _ScanStatus.done)
                 Text(
                     state.discoveryMode == DiscoveryMode.ble
-                        ? "${state.bleProxiUsersDetected} Proxi (${state.bleDevicesDetected} BLE)"
+                        ? "${state.bleProxiUsersDetected} Proxi"
                         : "${state.nearbyUsers.length} found",
                     style: const TextStyle(
                         fontSize: 12,

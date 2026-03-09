@@ -25,18 +25,24 @@ class BleAdvertiserService {
     }
   }
 
-  /// Start advertising the current user's UID via BLE.
+  /// Start advertising the current user's UID + username via BLE.
   /// Other Proxi phones scanning nearby will pick this up.
-  Future<bool> startAdvertising(String uid) async {
+  ///
+  /// [uid]      — Firebase UID (required, up to 20 UTF-8 bytes in manufacturer data)
+  /// [username] — Display name broadcasted in scan response (up to 12 bytes)
+  /// [deviceId] — Short device identifier broadcasted alongside username
+  Future<bool> startAdvertising(String uid,
+      {String username = '', String deviceId = ''}) async {
     if (_isAdvertising) {
       _log('Already advertising');
       return true;
     }
     try {
-      _log('Starting advertising for uid=${uid.substring(0, uid.length > 8 ? 8 : uid.length)}…');
+      _log('Starting advertising for uid=${uid.substring(0, uid.length > 8 ? 8 : uid.length)}… '
+          'username="${username.isEmpty ? "n/a" : username}"');
       final result = await _channel.invokeMethod<bool>(
         'startAdvertising',
-        {'uid': uid},
+        {'uid': uid, 'username': username, 'deviceId': deviceId},
       );
       _isAdvertising = result ?? false;
       _log('Advertising ${_isAdvertising ? "STARTED" : "FAILED"}');

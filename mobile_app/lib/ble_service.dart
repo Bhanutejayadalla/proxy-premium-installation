@@ -7,18 +7,24 @@ import 'package:permission_handler/permission_handler.dart';
 
 /// Represents a Proxi user discovered via BLE advertisement.
 class BleDiscoveredUser {
-  final String uid;       // Firebase UID extracted from manufacturer data
-  final int rssi;         // Signal strength
-  final double distanceM; // Estimated distance in meters
+  final String uid;         // Firebase UID extracted from manufacturer data
+  final String username;    // Username from scan response (may be empty)
+  final String deviceId;    // Device identifier from scan response (may be empty)
+  final int rssi;           // Signal strength
+  final double distanceM;   // Estimated distance in meters
 
   BleDiscoveredUser({
     required this.uid,
+    this.username = '',
+    this.deviceId = '',
     required this.rssi,
     required this.distanceM,
   });
 
   @override
-  String toString() => 'BleDiscoveredUser(uid: ${uid.substring(0, min(8, uid.length))}…, rssi: $rssi, dist: ${distanceM.toStringAsFixed(1)}m)';
+  String toString() => 'BleDiscoveredUser(uid: ${uid.substring(0, min(8, uid.length))}…, '
+      'username: ${username.isNotEmpty ? username : "?"}, '
+      'rssi: $rssi, dist: ${distanceM.toStringAsFixed(1)}m)';
 }
 
 class BleService {
@@ -28,6 +34,25 @@ class BleService {
 
   /// Manufacturer company ID used by Proxi (must match native Kotlin code).
   static const int proxiCompanyId = 0xFF01;
+
+  /// Proxi service UUID used for scan-response username data.
+  /// Must match PROXI_SERVICE_UUID in MainActivity.kt.
+  static const String proxiServiceUuid = '0000ff01-0000-1000-8000-00805f9b34fb';
+
+  // ── Continuous scan state ────────────────────────────────────────────────
+  final StreamController<Map<String, BleDiscoveredUser>> _discoveryCtrl =
+      StreamController<Map<String, BleDiscoveredUser>>.broadcast();
+
+  /// Stream that emits the current map of discovered users whenever it changes.
+  /// Key = uid string, value = BleDiscoveredUser.
+  Stream<Map<String, BleDiscoveredUser>> get discoveredUsersStream =>
+      _discoveryCtrl.stream;
+
+  final Map<String, BleDiscoveredUser> _discovered = {};
+  Timer? _scanRestartTimer;
+  StreamSubscription<List<ScanResult>>? _continuousScanSub;
+  bool _continuousRunning = false;
+  String? _myUid; // Filter our own advertisement out of results
 
   /// Approximate distance (meters) from RSSI using log-distance model.
   /// txPower = -59 dBm (typical at 1 meter), n = 2.0 (path-loss exponent).
@@ -60,7 +85,6 @@ class BleService {
     }
     if (!advertiseOk) {
       _log('WARNING: bluetoothAdvertise denied — device will NOT be visible to others');
-      // Do not return false here; scanning still works without advertise
     }
 
     try {
@@ -91,135 +115,216 @@ class BleService {
     }
   }
 
-  /// Scan for Proxi users specifically — filters BLE advertisements that
-  /// contain our custom manufacturer data (company ID 0xFF01 + UID bytes).
+  // ── Continuous scan API ──────────────────────────────────────────────────
+
+  /// Start a continuous BLE scan that:
+  /// • Emits updates via [discoveredUsersStream] whenever a new Proxi device
+  ///   is found or signal strength changes.
+  /// • Restarts the hardware scan every 9 seconds to defeat Android scan
+  ///   throttling (Android limits apps to 5 start-scan calls per 30 seconds).
   ///
-  /// Returns a list of [BleDiscoveredUser] with UID and estimated distance.
-  /// This works fully OFFLINE — no internet needed.
+  /// [myUid] — filter the local device's own advertisement out of results.
+  Future<void> startContinuousScan({
+    String? myUid,
+    int minRssi = rssiThreshold,
+  }) async {
+    if (_continuousRunning) {
+      _log('Continuous scan already running');
+      return;
+    }
+    _myUid = myUid;
+    _discovered.clear();
+    _continuousRunning = true;
+    _log('Starting continuous scan (restart every 9s, minRssi: $minRssi)');
+
+    // Run first cycle immediately, then restart on timer.
+    await _runScanCycle(minRssi);
+    _scanRestartTimer = Timer.periodic(const Duration(seconds: 9), (_) async {
+      if (_continuousRunning) await _runScanCycle(minRssi);
+    });
+  }
+
+  /// Stop continuous scanning and release all resources.
+  Future<void> stopContinuousScan() async {
+    if (!_continuousRunning) return;
+    _continuousRunning = false;
+    _scanRestartTimer?.cancel();
+    _scanRestartTimer = null;
+    _continuousScanSub?.cancel();
+    _continuousScanSub = null;
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
+    _discovered.clear();
+    _log('Continuous scan stopped');
+  }
+
+  /// Run one 8-second scan cycle, updating [_discovered] and pushing to the
+  /// stream. Called by [startContinuousScan] and its restart timer.
+  Future<void> _runScanCycle(int minRssi) async {
+    _log('Scan cycle starting…');
+    // Cancel previous listener before restarting hardware scan.
+    _continuousScanSub?.cancel();
+    _continuousScanSub = null;
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // Subscribe to results BEFORE starting scan to catch early packets.
+    _continuousScanSub = FlutterBluePlus.scanResults.listen((results) {
+      bool changed = false;
+      for (final r in results) {
+        if (r.rssi < minRssi) continue;
+        final parsed = _parseProxiAdvertisement(r);
+        if (parsed == null) continue;
+        // Skip our own advertisement.
+        if (_myUid != null && parsed.uid.startsWith(_myUid!.substring(0, min(12, _myUid!.length)))) continue;
+        final existing = _discovered[parsed.uid];
+        if (existing == null || r.rssi > existing.rssi ||
+            (parsed.username.isNotEmpty && existing.username.isEmpty)) {
+          _discovered[parsed.uid] = parsed;
+          changed = true;
+          _log('  → Discovered: ${parsed.uid.substring(0, min(8, parsed.uid.length))}… '
+              'username="${parsed.username}" rssi=${parsed.rssi} dist=${parsed.distanceM.toStringAsFixed(1)}m');
+        }
+      }
+      if (changed && !_discoveryCtrl.isClosed) {
+        _discoveryCtrl.add(Map.from(_discovered));
+      }
+    }, onError: (e) { _log('Scan stream error: $e'); });
+
+    try {
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 8),
+        androidUsesFineLocation: true,
+        androidScanMode: AndroidScanMode.lowLatency,
+      );
+      _log('Scan cycle started — LOW_LATENCY, 8s window');
+    } catch (e) {
+      _log('startScan failed: $e');
+    }
+  }
+
+  /// Parse a BLE advertisement and extract Proxi user data.
+  /// Returns null if this is not a Proxi advertisement.
+  ///
+  /// Manufacturer data (company ID 0xFF01): UID bytes (up to 20 chars).
+  /// Service data (UUID 0000ff01-...): username bytes (up to 12 chars).
+  BleDiscoveredUser? _parseProxiAdvertisement(ScanResult result) {
+    final mfData = result.advertisementData.manufacturerData;
+    final serviceData = result.advertisementData.serviceData;
+    final deviceMac = result.device.remoteId.str;
+
+    // Must have our manufacturer data to be a Proxi device.
+    if (!mfData.containsKey(proxiCompanyId)) return null;
+
+    final uidBytes = mfData[proxiCompanyId]!;
+    if (uidBytes.isEmpty) {
+      _log('  ✓ Proxi device $deviceMac: empty UID bytes');
+      return null;
+    }
+
+    String uid;
+    try {
+      uid = utf8.decode(uidBytes).trim();
+    } catch (e) {
+      _log('  ✗ UID decode failed for $deviceMac: $e');
+      return null;
+    }
+
+    // Extract username from scan response service data (if present).
+    String username = '';
+    String deviceId = '';
+    final proxiUuid = Guid(proxiServiceUuid);
+    if (serviceData.containsKey(proxiUuid)) {
+      final sdBytes = serviceData[proxiUuid]!;
+      // Format: username\x00deviceId  (null-delimited, each max 12 bytes)
+      try {
+        final decoded = utf8.decode(sdBytes).trim();
+        final parts = decoded.split('\x00');
+        username = parts.isNotEmpty ? parts[0] : '';
+        deviceId = parts.length > 1 ? parts[1] : deviceMac;
+      } catch (_) {
+        deviceId = deviceMac;
+      }
+    } else {
+      // Fall back to device MAC as identifier when no scan response.
+      deviceId = deviceMac;
+    }
+
+    final dist = estimateDistanceMeters(result.rssi);
+    _log('  ✓ Proxi: uid=${uid.substring(0, min(8, uid.length))}… '
+        'user="${username.isNotEmpty ? username : "?"}" '
+        'deviceId=$deviceId rssi=${result.rssi} dist=${dist.toStringAsFixed(1)}m');
+
+    return BleDiscoveredUser(
+      uid: uid,
+      username: username,
+      deviceId: deviceId,
+      rssi: result.rssi,
+      distanceM: dist,
+    );
+  }
+
+  /// One-shot scan (kept for compatibility with existing call sites).
+  /// Prefer [startContinuousScan] for the Nearby screen.
   Future<List<BleDiscoveredUser>> scanForProxiUsers({
     int minRssi = rssiThreshold,
     int durationSeconds = 8,
   }) async {
-    _log('Starting Proxi scan (duration: ${durationSeconds}s, minRssi: $minRssi)');
-    final Map<String, BleDiscoveredUser> discoveredUsers = {};
+    _log('One-shot Proxi scan (${durationSeconds}s, minRssi: $minRssi)');
+    final Map<String, BleDiscoveredUser> found = {};
 
-    // Stop any previous scan cleanly
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
-    // Small delay to ensure adapter resets between scans
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 400));
 
-    // Subscribe to results BEFORE starting scan to avoid missing early results
     final sub = FlutterBluePlus.scanResults.listen((results) {
-      _log('--- Scan batch: ${results.length} device(s) ---');
       for (final r in results) {
-        // Log devices below threshold too for debugging
-        if (r.rssi < minRssi) {
-          _log('  Skipping ${r.device.remoteId.str} rssi=${r.rssi} (below threshold $minRssi)');
-          continue;
-        }
-
-        // Check manufacturer data for Proxi company ID
-        final uid = _extractProxiUid(r);
-        if (uid != null && uid.isNotEmpty) {
-          final distance = estimateDistanceMeters(r.rssi);
-          _log('PROXI USER FOUND: uid=${uid.substring(0, min(8, uid.length))}… rssi=${r.rssi} dist=${distance.toStringAsFixed(1)}m');
-          // Keep the strongest signal per user
-          if (!discoveredUsers.containsKey(uid) ||
-              r.rssi > discoveredUsers[uid]!.rssi) {
-            discoveredUsers[uid] = BleDiscoveredUser(
-              uid: uid,
-              rssi: r.rssi,
-              distanceM: distance,
-            );
-          }
+        if (r.rssi < minRssi) continue;
+        final parsed = _parseProxiAdvertisement(r);
+        if (parsed == null) continue;
+        if (!found.containsKey(parsed.uid) || r.rssi > found[parsed.uid]!.rssi) {
+          found[parsed.uid] = parsed;
         }
       }
-    }, onError: (e) { _log('Scan stream error: $e'); });
+    }, onError: (e) { _log('Scan error: $e'); });
 
-    // Start scan after listener is active
     try {
       await FlutterBluePlus.startScan(
         timeout: Duration(seconds: durationSeconds),
         androidUsesFineLocation: true,
         androidScanMode: AndroidScanMode.lowLatency,
       );
-      _log('Scan started — LOW_LATENCY mode, duration: ${durationSeconds}s');
     } catch (e) {
       _log('startScan failed: $e');
       await sub.cancel();
       return [];
     }
 
-    // Wait for the full scan window + buffer
     await Future.delayed(Duration(seconds: durationSeconds + 1));
-
     await sub.cancel();
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
 
-    final sorted = discoveredUsers.values.toList()
+    final sorted = found.values.toList()
       ..sort((a, b) => a.distanceM.compareTo(b.distanceM));
-    _log('Proxi scan complete: ${sorted.length} users found, ${discoveredUsers.length} unique UIDs');
+    _log('One-shot scan complete: ${sorted.length} Proxi users found');
     return sorted;
   }
 
-  /// Extract a Proxi UID from a scan result's manufacturer data.
-  /// Returns null if this is not a Proxi advertisement.
-  String? _extractProxiUid(ScanResult result) {
-    final mfData = result.advertisementData.manufacturerData;
-    final deviceId = result.device.remoteId.str;
-    final deviceName = result.advertisementData.advName.isNotEmpty
-        ? result.advertisementData.advName
-        : result.device.platformName.isNotEmpty
-            ? result.device.platformName
-            : 'Unknown';
-
-    // Log every device for debugging
-    if (mfData.isEmpty) {
-      _log('  Device $deviceId ($deviceName) rssi=${result.rssi}: no manufacturer data');
-      return null;
-    }
-    _log('  Device $deviceId ($deviceName) rssi=${result.rssi}: mfData keys=${mfData.keys.toList()} [looking for $proxiCompanyId]');
-
-    // Check for our company ID (0xFF01 = 65281)
-    if (mfData.containsKey(proxiCompanyId)) {
-      final bytes = mfData[proxiCompanyId]!;
-      if (bytes.isEmpty) {
-        _log('  ✓ Proxi device found but UID bytes empty!');
-        return null;
-      }
-      try {
-        final uid = utf8.decode(bytes).trim();
-        _log('  ✓ Proxi user detected! uid=${uid.substring(0, min(8, uid.length))}…');
-        return uid;
-      } catch (e) {
-        _log('  ✗ Failed to decode UID bytes: $e');
-        return null;
-      }
-    }
-    return null;
-  }
-
-  /// Perform a general BLE scan (includes all devices, not just Proxi).
-  /// Returns total device count for diagnostics.
+  /// Perform a general BLE scan — returns all visible devices for diagnostics.
   Future<List<ScanResult>> scanAndCollect({
     int minRssi = rssiThreshold,
-    int durationSeconds = 8,
+    int durationSeconds = 5,
   }) async {
-    final Map<String, ScanResult> bestResults = {};
-
+    final Map<String, ScanResult> best = {};
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 300));
 
     final sub = FlutterBluePlus.scanResults.listen((results) {
       for (final r in results) {
         if (r.rssi >= minRssi) {
           final id = r.device.remoteId.str.toUpperCase();
-          if (!bestResults.containsKey(id) || r.rssi > bestResults[id]!.rssi) {
-            bestResults[id] = r;
-          }
+          if (!best.containsKey(id) || r.rssi > best[id]!.rssi) best[id] = r;
         }
       }
-    }, onError: (_) { /* ignore scan errors */ });
+    }, onError: (_) {});
 
     try {
       await FlutterBluePlus.startScan(
@@ -233,11 +338,14 @@ class BleService {
     }
 
     await Future.delayed(Duration(seconds: durationSeconds + 1));
-
     await sub.cancel();
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
+    return best.values.toList();
+  }
 
-    return bestResults.values.toList();
+  /// Stop any ongoing scan.
+  Future<void> stopScan() async {
+    try { await FlutterBluePlus.stopScan(); } catch (_) {}
   }
 
   /// Legacy stream-based scan (kept for compatibility).
@@ -246,10 +354,5 @@ class BleService {
     return FlutterBluePlus.scanResults.map((results) =>
       results.where((r) => r.rssi >= minRssi).toList()
     );
-  }
-
-  /// Stop any ongoing scan.
-  Future<void> stopScan() async {
-    try { await FlutterBluePlus.stopScan(); } catch (_) {}
   }
 }
