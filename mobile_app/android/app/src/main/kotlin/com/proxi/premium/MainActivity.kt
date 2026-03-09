@@ -144,11 +144,13 @@ class MainActivity : FlutterActivity() {
             .addManufacturerData(PROXI_COMPANY_ID, uidBytes)
             .build()
 
-        // â”€â”€ Scan response (second 31-byte window) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // Format: username\x00deviceId  (null-delimited, max 26 useful bytes)
-        // Scanner reads this via advertisementData.serviceData[PROXI_SERVICE_UUID].
-        val usernamePrefix = username.take(12)       // max 12 chars for username
-        val deviceIdPrefix = deviceId.take(8)        // max 8 chars for device id
+        // -- Scan response (second 31-byte window) ----------------------------
+        // 128-bit UUID service data overhead: Length(1)+Type(1)+UUID(16) = 18 bytes
+        // -> max payload = 31 - 18 = 13 bytes
+        // Format: username\x00deviceId  (null-delimited)
+        // Budget: username(8) + null(1) + deviceId(4) = 13 bytes exactly
+        val usernamePrefix = username.take(8)        // max 8 chars for username
+        val deviceIdPrefix = deviceId.take(4)        // max 4 chars for device id
         val scanRespPayload = "$usernamePrefix\u0000$deviceIdPrefix"
             .toByteArray(Charsets.UTF_8)
         Log.d(TAG, "Scan response: username='$usernamePrefix', deviceId='$deviceIdPrefix', " +

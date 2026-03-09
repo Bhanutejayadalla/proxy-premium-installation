@@ -235,7 +235,7 @@ class BleService {
     final proxiUuid = Guid(proxiServiceUuid);
     if (serviceData.containsKey(proxiUuid)) {
       final sdBytes = serviceData[proxiUuid]!;
-      // Format: username\x00deviceId  (null-delimited, each max 12 bytes)
+      // Format: username\x00deviceId  (null-delimited, username max 8 bytes, deviceId max 4 bytes)
       try {
         final decoded = utf8.decode(sdBytes).trim();
         final parts = decoded.split('\x00');
