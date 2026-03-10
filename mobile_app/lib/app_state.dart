@@ -566,6 +566,15 @@ class AppState extends ChangeNotifier {
       return;
     }
 
+    // On Android, Location Services must be ON for BLE scanning to return results.
+    final locOn = await location.isLocationServiceEnabled();
+    if (!locOn) {
+      bleScanError = 'Location Services are OFF. Enable GPS in Settings to scan for nearby devices.';
+      debugPrint('[BLE] Location services OFF — BLE scanning will not return results');
+      notifyListeners();
+      return;
+    }
+
     bleScanError = '';
     bleProxiUsersDetected = 0;
 

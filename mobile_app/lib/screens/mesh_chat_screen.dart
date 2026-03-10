@@ -137,7 +137,7 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Bluetooth and Location permissions are required for Mesh Chat.'),
+            content: Text('Bluetooth, Location permissions, and GPS must be enabled for Mesh Chat.'),
             backgroundColor: Colors.red,
           ),
         );

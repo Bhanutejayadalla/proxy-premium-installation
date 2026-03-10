@@ -49,6 +49,7 @@ class BleService {
       _discoveryCtrl.stream;
 
   final Map<String, BleDiscoveredUser> _discovered = {};
+  final Map<String, DateTime> _discoveredAt = {};
   Timer? _scanRestartTimer;
   StreamSubscription<List<ScanResult>>? _continuousScanSub;
   bool _continuousRunning = false;
@@ -134,6 +135,7 @@ class BleService {
     }
     _myUid = myUid;
     _discovered.clear();
+    _discoveredAt.clear();
     _continuousRunning = true;
     _log('Starting continuous scan (restart every 9s, minRssi: $minRssi)');
 
@@ -154,6 +156,7 @@ class BleService {
     _continuousScanSub = null;
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
     _discovered.clear();
+    _discoveredAt.clear();
     _log('Continuous scan stopped');
   }
 
@@ -161,6 +164,24 @@ class BleService {
   /// stream. Called by [startContinuousScan] and its restart timer.
   Future<void> _runScanCycle(int minRssi) async {
     _log('Scan cycle starting…');
+
+    // Remove devices not seen in the last 30 seconds (out of range).
+    final expiry = DateTime.now().subtract(const Duration(seconds: 30));
+    final stale = _discoveredAt.entries
+        .where((e) => e.value.isBefore(expiry))
+        .map((e) => e.key)
+        .toList();
+    if (stale.isNotEmpty) {
+      for (final uid in stale) {
+        _discovered.remove(uid);
+        _discoveredAt.remove(uid);
+      }
+      if (!_discoveryCtrl.isClosed) {
+        _discoveryCtrl.add(Map.from(_discovered));
+      }
+      _log('Removed ${stale.length} stale device(s)');
+    }
+
     // Cancel previous listener before restarting hardware scan.
     _continuousScanSub?.cancel();
     _continuousScanSub = null;
@@ -180,6 +201,7 @@ class BleService {
         if (existing == null || r.rssi > existing.rssi ||
             (parsed.username.isNotEmpty && existing.username.isEmpty)) {
           _discovered[parsed.uid] = parsed;
+          _discoveredAt[parsed.uid] = DateTime.now();
           changed = true;
           _log('  → Discovered: ${parsed.uid.substring(0, min(8, parsed.uid.length))}… '
               'username="${parsed.username}" rssi=${parsed.rssi} dist=${parsed.distanceM.toStringAsFixed(1)}m');

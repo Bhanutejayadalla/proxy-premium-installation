@@ -1,6 +1,5 @@
 ﻿import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:nearby_connections/nearby_connections.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -37,6 +36,11 @@ class MeshService extends ChangeNotifier {
   // Track known endpoints that have been found but not yet connected,
   // so we can attempt reconnect after a disconnect.
   final Set<String> _knownEndpoints = {};
+  final Set<String> _pendingConnections = {};
+
+  /// Recently seen message IDs — prevents processing the same relayed message twice.
+  final Set<String> _seenMessageIds = {};
+  static const int _maxSeenMessages = 500;
 
   // Health-check timer — restarts discovery/advertising if peers drop.
   Timer? _healthTimer;
@@ -51,8 +55,24 @@ class MeshService extends ChangeNotifier {
   Future<bool> init(String myUid) async {
     _myUid = myUid;
     final ok = await _requestPermissions();
-    _log('init uid=$myUid permissions=$ok');
-    return ok;
+    if (!ok) {
+      _log('init uid=$myUid permissions=DENIED');
+      return false;
+    }
+
+    // Nearby Connections requires Location/GPS to be ON (Android).
+    try {
+      final locStatus = await Permission.location.serviceStatus;
+      if (!locStatus.isEnabled) {
+        _log('Location/GPS is OFF — mesh will not work');
+        return false;
+      }
+    } catch (e) {
+      _log('Location service check error (non-fatal): $e');
+    }
+
+    _log('init uid=$myUid permissions=OK location=ON');
+    return true;
   }
 
   Future<bool> _requestPermissions() async {
@@ -86,12 +106,16 @@ class MeshService extends ChangeNotifier {
     _log('Starting mesh for $_myUid');
     await _startNearby();
 
-    // Health-check: if no peers connect within 30s, restart discovery.
+    // Health-check: restart discovery/advertising periodically.
     _healthTimer?.cancel();
     _healthTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (_isRunning && _connectedPeers.isEmpty) {
-        _log('Health-check: no peers — restarting discovery/advertising');
+      if (!_isRunning) return;
+      if (_connectedPeers.isEmpty) {
+        _log('Health-check: no peers — full restart');
         _restartNearby();
+      } else {
+        _log('Health-check: ${_connectedPeers.length} peers — refreshing discovery');
+        _refreshDiscovery();
       }
     });
   }
@@ -130,8 +154,28 @@ class MeshService extends ChangeNotifier {
       await Nearby().stopAdvertising();
       await Nearby().stopDiscovery();
     } catch (_) {}
+    _pendingConnections.clear();
     await Future.delayed(const Duration(milliseconds: 500));
     if (_isRunning) await _startNearby();
+  }
+
+  /// Restart only discovery (keeps existing connections alive).
+  Future<void> _refreshDiscovery() async {
+    try { await Nearby().stopDiscovery(); } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!_isRunning) return;
+    try {
+      await Nearby().startDiscovery(
+        _myUid!,
+        Strategy.P2P_CLUSTER,
+        onEndpointFound: _onEndpointFound,
+        onEndpointLost: _onEndpointLost,
+        serviceId: kProxiServiceId,
+      );
+      _log('Discovery refreshed');
+    } catch (e) {
+      _log('Discovery refresh error: $e');
+    }
   }
 
   Future<void> stop() async {
@@ -147,6 +191,8 @@ class MeshService extends ChangeNotifier {
     _connectedPeers.clear();
     _endpointToUid.clear();
     _knownEndpoints.clear();
+    _pendingConnections.clear();
+    _seenMessageIds.clear();
     notifyListeners();
     _log('Mesh stopped');
   }
@@ -155,19 +201,24 @@ class MeshService extends ChangeNotifier {
     _log('Endpoint found: $endpointName ($endpointId)');
     _endpointToUid[endpointId] = endpointName;
     _knownEndpoints.add(endpointId);
-    // Request connection only if not already connected/connecting.
-    if (!_connectedPeers.containsValue(endpointId)) {
-      Nearby().requestConnection(
-        _myUid!,
-        endpointId,
-        onConnectionInitiated: _onConnectionInitiated,
-        onConnectionResult: _onConnectionResult,
-        onDisconnected: _onDisconnected,
-      ).catchError((e) {
-        _log('requestConnection error for $endpointId: $e');
-        return false;
-      });
+    // Skip if already connected or a connection request is in-flight.
+    if (_connectedPeers.containsValue(endpointId) ||
+        _pendingConnections.contains(endpointId)) {
+      _log('Already connected/connecting to $endpointId — skipping');
+      return;
     }
+    _pendingConnections.add(endpointId);
+    Nearby().requestConnection(
+      _myUid!,
+      endpointId,
+      onConnectionInitiated: _onConnectionInitiated,
+      onConnectionResult: _onConnectionResult,
+      onDisconnected: _onDisconnected,
+    ).catchError((e) {
+      _pendingConnections.remove(endpointId);
+      _log('requestConnection error for $endpointId: $e');
+      return false;
+    });
   }
 
   void _onEndpointLost(String? endpointId) {
@@ -195,6 +246,7 @@ class MeshService extends ChangeNotifier {
 
   void _onConnectionResult(String endpointId, Status status) {
     _log('Connection result: $status for $endpointId');
+    _pendingConnections.remove(endpointId);
     if (status == Status.CONNECTED) {
       final uid = _endpointToUid[endpointId];
       if (uid != null && uid != _myUid) {
@@ -204,13 +256,15 @@ class MeshService extends ChangeNotifier {
         _deliverPendingTo(uid, endpointId);
       }
     } else {
-      _endpointToUid.remove(endpointId);
+      // Don't remove from _endpointToUid — the peer may still accept
+      // an incoming connection from the other direction.
       _log('Connection failed for $endpointId: $status');
     }
   }
 
   void _onDisconnected(String endpointId) {
     final uid = _endpointToUid.remove(endpointId);
+    _pendingConnections.remove(endpointId);
     if (uid != null) {
       _connectedPeers.remove(uid);
       notifyListeners();
@@ -219,9 +273,7 @@ class MeshService extends ChangeNotifier {
     // Trigger a discovery restart so we can reconnect shortly.
     if (_isRunning) {
       Future.delayed(const Duration(seconds: 3), () {
-        if (_isRunning && !_connectedPeers.values.contains(endpointId)) {
-          _restartNearby();
-        }
+        if (_isRunning) _restartNearby();
       });
     }
   }
@@ -229,7 +281,7 @@ class MeshService extends ChangeNotifier {
   void _onPayloadReceived(String endpointId, Payload payload) async {
     if (payload.type != PayloadType.BYTES || payload.bytes == null) return;
     try {
-      final jsonStr = String.fromCharCodes(payload.bytes!);
+      final jsonStr = utf8.decode(payload.bytes!);
       final packet = MeshWirePacket.fromJson(jsonStr);
       _log('Message received from $endpointId: ${packet.messageId}');
       await onPacketReceived(packet);
@@ -241,6 +293,17 @@ class MeshService extends ChangeNotifier {
   Future<void> onPacketReceived(MeshWirePacket packet) async {
     final myUid = _myUid;
     if (myUid == null) return;
+
+    // Deduplicate: skip messages we've already processed/relayed.
+    if (_seenMessageIds.contains(packet.messageId)) {
+      _log('Duplicate packet ${packet.messageId} — dropping');
+      return;
+    }
+    _seenMessageIds.add(packet.messageId);
+    if (_seenMessageIds.length > _maxSeenMessages) {
+      _seenMessageIds.remove(_seenMessageIds.first);
+    }
+
     if (packet.receiverId == myUid) {
       try {
         final plaintext = _crypto.decrypt(packet.encryptedPayload, packet.senderId, myUid);
