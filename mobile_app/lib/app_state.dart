@@ -25,7 +25,9 @@ class AppState extends ChangeNotifier {
   final UserCacheService userCache = UserCacheService();
 
   /// Mesh networking — BLE-based offline chat.
+  /// MeshSyncService is disabled while mesh is offline; kept for future re-enable.
   final MeshService meshService = MeshService();
+  // ignore: unused_field
   final MeshSyncService _meshSync = MeshSyncService();
 
   AppUser? currentUser;
@@ -204,13 +206,13 @@ class AppState extends ChangeNotifier {
   void _startListeners() {
     _stopListeners();
 
-    // ── Mesh networking init ──────────────────────────────────────────────────
-    if (currentUser != null) {
-      meshService.init(currentUser!.uid);
-      _meshSync.startWatching(currentUser!.uid);
-      // Note: BLE→mesh pipeline is managed inside meshService.start(bleService:)
-      // called from MeshChatScreen — no duplicate subscription needed here.
-    }
+    // ── Mesh networking (TEMPORARILY DISABLED — BLE-only mode) ──────────────
+    // Mesh requires Wi-Fi Direct + BLE simultaneously and conflicts with the
+    // standalone BLE scanner. Re-enable once mesh is fully decoupled from BLE.
+    // if (currentUser != null) {
+    //   meshService.init(currentUser!.uid);
+    //   _meshSync.startWatching(currentUser!.uid);
+    // }
 
     // Track accepted connections — needed for visibility filtering
     if (currentUser != null) {
@@ -370,9 +372,9 @@ class AppState extends ChangeNotifier {
     _receivedRequestsSub?.cancel();
     _profileSub?.cancel();
     _notifSub?.cancel();
-    // Stop mesh scanning and Firebase sync watcher
-    meshService.stop();
-    _meshSync.stopWatching();
+    // Mesh temporarily disabled — do not call meshService.stop() here.
+    // meshService.stop();
+    // _meshSync.stopWatching();
   }
 
   /// Manual refresh (pull-to-refresh) — re-subscribe.
@@ -637,11 +639,10 @@ class AppState extends ChangeNotifier {
   Future<void> stopContinuousBleScan() async {
     _continuousBleSub?.cancel();
     _continuousBleSub = null;
-    // Only stop the hardware BLE scan if mesh service is not actively using it.
-    if (!meshService.isRunning) {
-      await ble.stopContinuousScan();
-    }
-    debugPrint('[BLE] Continuous scan stopped (mesh running: ${meshService.isRunning})');
+    // Always stop the hardware BLE scan to free resources.
+    // (Previously guarded by meshService.isRunning, but mesh is disabled.)
+    await ble.stopContinuousScan();
+    debugPrint('[BLE] Continuous scan stopped');
   }
 
   /// Sync discoverable users to local cache (call when online).

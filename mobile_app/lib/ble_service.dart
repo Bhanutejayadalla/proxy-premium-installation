@@ -53,6 +53,7 @@ class BleService {
   Timer? _scanRestartTimer;
   StreamSubscription<List<ScanResult>>? _continuousScanSub;
   bool _continuousRunning = false;
+  bool _scanCycleInProgress = false; // Guard: prevents overlapping scan cycles
   String? _myUid; // Filter our own advertisement out of results
 
   /// Approximate distance (meters) from RSSI using log-distance model.
@@ -121,7 +122,7 @@ class BleService {
   /// Start a continuous BLE scan that:
   /// • Emits updates via [discoveredUsersStream] whenever a new Proxi device
   ///   is found or signal strength changes.
-  /// • Restarts the hardware scan every 9 seconds to defeat Android scan
+  /// • Restarts the hardware scan every 10 seconds to defeat Android scan
   ///   throttling (Android limits apps to 5 start-scan calls per 30 seconds).
   ///
   /// [myUid] — filter the local device's own advertisement out of results.
@@ -130,18 +131,20 @@ class BleService {
     int minRssi = rssiThreshold,
   }) async {
     if (_continuousRunning) {
-      _log('Continuous scan already running');
+      _log('Continuous scan already running — updating myUid if changed');
+      if (myUid != null) _myUid = myUid;
       return;
     }
     _myUid = myUid;
     _discovered.clear();
     _discoveredAt.clear();
     _continuousRunning = true;
-    _log('Starting continuous scan (restart every 9s, minRssi: $minRssi)');
+    _scanCycleInProgress = false;
+    _log('Starting continuous scan (restart every 10s, minRssi: $minRssi)');
 
     // Run first cycle immediately, then restart on timer.
     await _runScanCycle(minRssi);
-    _scanRestartTimer = Timer.periodic(const Duration(seconds: 9), (_) async {
+    _scanRestartTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
       if (_continuousRunning) await _runScanCycle(minRssi);
     });
   }
@@ -150,11 +153,13 @@ class BleService {
   Future<void> stopContinuousScan() async {
     if (!_continuousRunning) return;
     _continuousRunning = false;
+    _scanCycleInProgress = false;
     _scanRestartTimer?.cancel();
     _scanRestartTimer = null;
     _continuousScanSub?.cancel();
     _continuousScanSub = null;
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 100));
     _discovered.clear();
     _discoveredAt.clear();
     _log('Continuous scan stopped');
@@ -163,8 +168,15 @@ class BleService {
   /// Run one 8-second scan cycle, updating [_discovered] and pushing to the
   /// stream. Called by [startContinuousScan] and its restart timer.
   Future<void> _runScanCycle(int minRssi) async {
+    // Guard: skip if a previous cycle is still finishing up.
+    if (_scanCycleInProgress) {
+      _log('Scan cycle already in progress — skipping overlap');
+      return;
+    }
+    _scanCycleInProgress = true;
     _log('Scan cycle starting…');
 
+    try {
     // Remove devices not seen in the last 30 seconds (out of range).
     final expiry = DateTime.now().subtract(const Duration(seconds: 30));
     final stale = _discoveredAt.entries
@@ -186,7 +198,9 @@ class BleService {
     _continuousScanSub?.cancel();
     _continuousScanSub = null;
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    if (!_continuousRunning) { _scanCycleInProgress = false; return; }
 
     // Subscribe to results BEFORE starting scan to catch early packets.
     _continuousScanSub = FlutterBluePlus.scanResults.listen((results) {
@@ -221,6 +235,9 @@ class BleService {
       _log('Scan cycle started — LOW_LATENCY, 8s window');
     } catch (e) {
       _log('startScan failed: $e');
+    }
+    } finally {
+      _scanCycleInProgress = false;
     }
   }
 

@@ -31,20 +31,15 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 
   List<MeshMessage> _messages = [];
   bool _meshActive = false;
+  // ignore: prefer_final_fields
   bool _isSending = false;
   StreamSubscription<MeshMessage>? _msgSub;
 
   @override
   void initState() {
     super.initState();
-    // Sync toggle with the service’s actual running state (e.g. if user navigated
-    // away without toggling off, the mesh is still running when they return).
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final meshRunning =
-          Provider.of<AppState>(context, listen: false).meshService.isRunning;
-      if (meshRunning != _meshActive) setState(() => _meshActive = meshRunning);
-    });
+    // Mesh is temporarily disabled — always start with mesh inactive.
+    _meshActive = false;
     _load();
     _subscribeToIncoming();
   }
@@ -69,14 +64,7 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   }
 
   void _subscribeToIncoming() {
-    final state = Provider.of<AppState>(context, listen: false);
-    _msgSub = state.meshService.incomingMessages.listen((msg) {
-      if (msg.senderId == widget.targetUid ||
-          msg.receiverId == widget.targetUid) {
-        setState(() => _messages.add(msg));
-        _scrollToBottom();
-      }
-    });
+    // Mesh is temporarily disabled — no incoming stream to subscribe to.
   }
 
   void _scrollToBottom() {
@@ -97,68 +85,34 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
     final text = _textCtrl.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    final state = Provider.of<AppState>(context, listen: false);
-    if (!_meshActive) {
-      // Mesh mode is off — inform user
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Enable the Mesh toggle to send offline messages.'),
-          backgroundColor: Colors.orange,
+    // Mesh is temporarily disabled — inform the user to use the regular chat.
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Mesh Chat is temporarily disabled. Please use the regular chat.',
         ),
-      );
-      return;
-    }
-
-    setState(() => _isSending = true);
-    _textCtrl.clear();
-
-    try {
-      final msg = await state.meshService.sendMessage(
-        receiverUid: widget.targetUid,
-        text: text,
-      );
-      setState(() {
-        _messages.add(msg);
-        _isSending = false;
-      });
-      _scrollToBottom();
-    } catch (e) {
-      setState(() => _isSending = false);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Send failed: $e'),
-            backgroundColor: Colors.red),
-      );
-    }
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   // ── mesh toggle ──────────────────────────────────────────────────────────────
+  // TEMPORARILY DISABLED: Mesh networking is disabled while the standalone
+  // Bluetooth connection is being stabilised. The toggle is visible but locked.
 
   Future<void> _toggleMesh(bool value) async {
-    final state = Provider.of<AppState>(context, listen: false);
-    final myUid = state.currentUser?.uid ?? '';
-
-    if (value) {
-      // Ensure permissions before starting.
-      final ok = await state.meshService.init(myUid);
-      if (!ok) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bluetooth, Location permissions, and GPS must be enabled for Mesh Chat.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-      setState(() => _meshActive = true);
-      await state.meshService.start(bleService: state.ble);
-      // Also start BLE advertising so peers can discover us
-      await state.startBleAdvertising();
-    } else {
-      setState(() => _meshActive = false);
-      await state.meshService.stop();
-    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Mesh Chat is temporarily disabled while Bluetooth optimisation is in progress.',
+        ),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   // ── UI ───────────────────────────────────────────────────────────────────────
