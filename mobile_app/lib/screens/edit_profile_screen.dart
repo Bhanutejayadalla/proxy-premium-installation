@@ -12,6 +12,7 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  late TextEditingController _username;
   late TextEditingController _fullName;
   late TextEditingController _headline;
   late TextEditingController _bio;
@@ -31,6 +32,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     final user = Provider.of<AppState>(context, listen: false).currentUser!;
+    _username = TextEditingController(text: user.username);
     _fullName = TextEditingController(text: user.fullName);
     _headline = TextEditingController(text: user.headline);
     _bio = TextEditingController(text: user.bio);
@@ -42,6 +44,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   void dispose() {
+    _username.dispose();
     _fullName.dispose();
     _headline.dispose();
     _bio.dispose();
@@ -58,7 +61,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           .map((s) => s.trim())
           .where((s) => s.isNotEmpty)
           .toList();
+      final newUsername = _username.text.trim();
+      if (newUsername.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Username cannot be empty')));
+        }
+        setState(() => _saving = false);
+        return;
+      }
       await state.updateProfile({
+        'username': newUsername,
         'full_name': _fullName.text.trim(),
         'headline': _headline.text.trim(),
         'bio': _bio.text.trim(),
@@ -134,6 +147,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 24),
 
             // FIELDS
+            TextField(
+              controller: _username,
+              decoration: const InputDecoration(
+                  labelText: "Username",
+                  hintText: "Your unique username",
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: _fullName,
               decoration: const InputDecoration(

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -22,6 +24,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
   bool _bleAdapterOn = false;
   bool _locationServiceOn = false;
   bool _locationServiceEnabled = false;
+  StreamSubscription<BluetoothAdapterState>? _adapterSub;
 
   @override
   void initState() {
@@ -40,11 +43,32 @@ class _NearbyScreenState extends State<NearbyScreen> {
           if (mounted) setState(() => _status = _ScanStatus.scanning);
         }
       }
+
+      // Monitor Bluetooth adapter state changes (skip the initial/current emission).
+      // Automatically stops scan when BT is turned off and restarts when turned back on.
+      _adapterSub = FlutterBluePlus.adapterState.skip(1).listen((btState) async {
+        if (!mounted) return;
+        final isOn = btState == BluetoothAdapterState.on;
+        setState(() => _bleAdapterOn = isOn);
+
+        final appState = Provider.of<AppState>(context, listen: false);
+        if (!isOn) {
+          // Bluetooth turned OFF — stop scan and reset status
+          await appState.stopContinuousBleScan();
+          if (mounted) setState(() => _status = _ScanStatus.idle);
+        } else if (appState.discoveryMode == DiscoveryMode.ble) {
+          // Bluetooth turned back ON — restart scan automatically
+          if (mounted) setState(() => _status = _ScanStatus.scanning);
+          await appState.startContinuousBleScan();
+          if (mounted) setState(() => _status = _ScanStatus.scanning);
+        }
+      });
     });
   }
 
   @override
   void dispose() {
+    _adapterSub?.cancel();
     // Stop continuous scan when screen is closed to save battery.
     final state = Provider.of<AppState>(context, listen: false);
     state.stopContinuousBleScan();

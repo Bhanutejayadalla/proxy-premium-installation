@@ -51,7 +51,7 @@ class ProfileScreen extends StatelessWidget {
                         : null,
                   ),
                   const SizedBox(height: 10),
-                  Text(user.fullName.isNotEmpty ? user.fullName : user.username,
+                  Text(user.username,
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 22)),
                   if (user.headline.isNotEmpty)
