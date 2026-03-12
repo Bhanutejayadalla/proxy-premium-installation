@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as enc;
+import 'package:flutter/foundation.dart';
 
 /// AES-256-GCM encryption for mesh messages.
 ///

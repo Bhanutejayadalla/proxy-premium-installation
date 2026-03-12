@@ -2,7 +2,7 @@
 
 **An enhanced dual-mode social networking app that adapts to your life: Professional when you need it, Casual when you don't.**
 
-![Version](https://img.shields.io/badge/version-3.1_Premium-blue)
+![Version](https://img.shields.io/badge/version-3.1.1_Premium-blue)
 ![Firebase](https://img.shields.io/badge/backend-Firebase-orange)
 ![Cloudinary](https://img.shields.io/badge/media-Cloudinary-purple)
 ![Flutter](https://img.shields.io/badge/Flutter-3.0+-blue)
@@ -364,13 +364,13 @@ Offline  ──► [messages stored in SQLite with status=pending/delivered] ─
 |---|---|
 | `android/…/WifiDirectPlugin.kt` | Native Wi-Fi Direct engine — `WifiP2pManager`, `BroadcastReceiver`, `ServerSocket`/`Socket`, `ConcurrentHashMap` socket streams |
 | `lib/services/wifi_direct_service.dart` | Flutter Dart wrapper over platform channel `com.proxi.wifi_direct` |
-| `lib/services/mesh_service.dart` | Core orchestrator — BLE→WiFi trigger, handshake protocol, send/receive/relay, FIFO dedup |
+| `lib/services/mesh_service.dart` | Core orchestrator — BLE→WiFi trigger, handshake protocol, send/receive/relay, FIFO dedup; owns BLE scan lifecycle (starts on `start()`, stops on `stop()`) |
 | `lib/services/mesh_db_service.dart` | SQLite singleton — full CRUD for offline message store |
 | `lib/services/mesh_encryption_service.dart` | AES-256-CBC encrypt/decrypt + real SHA-256 key derivation + `MeshWirePacket` serialization |
 | `lib/services/mesh_sync_service.dart` | Connectivity watcher — uploads encrypted payload, downloads missed messages on reconnect |
 | `lib/screens/mesh_chat_screen.dart` | Full chat UI — Mesh toggle, BLE/WiFi/socket/peer count banner, delivery status icons |
 | `lib/models.dart` | `MeshMessage` model + `MeshDeliveryStatus` enum |
-| `lib/app_state.dart` | Wires `MeshService` and `MeshSyncService` into the global provider; starts/stops with auth lifecycle |
+| `lib/app_state.dart` | Wires `MeshService` and `MeshSyncService` into the global provider; starts/stops with auth lifecycle; NearbyScreen BLE scan coexists safely with mesh BLE scan |
 
 ---
 
@@ -505,6 +505,7 @@ This repo uses its own Firebase project and Cloudinary account. To fork and run 
 | Version | Date | Highlights |
 |---|---|---|
 | **3.0.1 Premium** | July 2025 | Fixed Skill Exchange, Community Posts, Events filtering, Resource filtering (missing Firestore indexes); full feature audit |
+| **3.1.1 Premium** | March 2026 | Fix: BLE scan lifecycle — NearbyScreen no longer kills mesh BLE scan; mesh properly cleans up BLE on stop; removed duplicate BLE→mesh subscription that caused double-processing |
 | **3.1 Premium** | March 2026 | Mesh Chat (offline P2P via native WifiP2pManager / Wi-Fi Direct + TCP sockets, AES-256-CBC + SHA-256 encryption, SQLite store, multi-hop relay, Firebase sync — encrypted payload only) · Improved typing bar UX |
 | **3.0 Premium** | March 2026 | Campus Hub, rebranded as Proxi Premium, BLE fixes |
 | **3.0** | March 2026 | Campus Hub (search, projects, communities, events, maps) |

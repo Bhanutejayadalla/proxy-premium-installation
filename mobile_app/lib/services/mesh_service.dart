@@ -40,6 +40,9 @@ class MeshService extends ChangeNotifier {
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
+  /// Reference to the BleService passed in start(), so we can stop scanning on stop().
+  BleService? _bleService;
+
   /// Connected peers: uid → socket address (from Wi-Fi Direct)
   final Map<String, String> _connectedPeers = {};
 
@@ -138,6 +141,9 @@ class MeshService extends ChangeNotifier {
     final wifiResults = await [Permission.nearbyWifiDevices].request();
     final wifiOk = wifiResults[Permission.nearbyWifiDevices]?.isGranted == true;
     _log('BLE permissions ok=$bleOk, NEARBY_WIFI_DEVICES ok=$wifiOk');
+    if (!wifiOk) {
+      _log('WARNING: NEARBY_WIFI_DEVICES denied — Wi-Fi Direct may not work on Android 13+');
+    }
 
     // Both BLE and Wi-Fi are required for mesh.
     return bleOk;
@@ -147,7 +153,7 @@ class MeshService extends ChangeNotifier {
   //  Start / Stop
   // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<void> start() async {
+  Future<void> start({BleService? bleService}) async {
     if (_isRunning || _myUid == null) return;
     _isRunning = true;
     notifyListeners();
@@ -156,6 +162,19 @@ class MeshService extends ChangeNotifier {
     // Listen to Wi-Fi Direct events from native layer
     _wifiEventSub?.cancel();
     _wifiEventSub = _wifiDirect.events.listen(_onWifiDirectEvent);
+
+    // Start BLE scanning for peer discovery (feeds onBleDeviceDiscovered)
+    if (bleService != null && _myUid != null) {
+      _bleService = bleService;
+      _bleScanSub?.cancel();
+      _bleScanSub = bleService.discoveredUsersStream.listen((users) {
+        for (final user in users.values) {
+          onBleDeviceDiscovered(user);
+        }
+      });
+      bleService.startContinuousScan(myUid: _myUid);
+      _log('BLE scanning started for mesh peer discovery');
+    }
 
     // Start Wi-Fi Direct peer discovery
     await _startWifiDirectDiscovery();
@@ -172,7 +191,7 @@ class MeshService extends ChangeNotifier {
       if (!_isRunning) return;
       _log('Health-check: ${_connectedPeers.length} peers, '
           '${_socketConnectedPeers.length} sockets, '
-          'wifi=${_isWifiDirectConnected}');
+          'wifi=$_isWifiDirectConnected');
       if (_connectedPeers.isEmpty && _isRunning) {
         _log('Health-check: no peers — restarting discovery');
         _startWifiDirectDiscovery();
@@ -194,6 +213,12 @@ class MeshService extends ChangeNotifier {
 
     await _wifiDirect.stopDiscovery();
     await _wifiDirect.disconnect();
+
+    // Stop BLE scanning that we started in start()
+    if (_bleService != null) {
+      await _bleService!.stopContinuousScan();
+      _bleService = null;
+    }
 
     _isRunning = false;
     _isWifiDirectConnected = false;

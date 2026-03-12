@@ -47,7 +47,6 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _receivedRequestsSub;
   StreamSubscription? _profileSub; // Real-time profile listener
   StreamSubscription? _notifSub; // Real-time push notification listener
-  StreamSubscription? _bleMeshSub; // BLE → mesh pipeline subscription
   final NotificationService _notifService = NotificationService();
   bool _notifInitialSnapshotSkipped = false; // Skip first snapshot to avoid old notifs
   List<String> _connectedUids = []; // UIDs of accepted connections
@@ -209,15 +208,8 @@ class AppState extends ChangeNotifier {
     if (currentUser != null) {
       meshService.init(currentUser!.uid);
       _meshSync.startWatching(currentUser!.uid);
-
-      // Wire BLE discovery into mesh service so Wi-Fi Direct connects
-      // when nearby Proxi users are detected via BLE.
-      _bleMeshSub?.cancel();
-      _bleMeshSub = ble.discoveredUsersStream.listen((discovered) {
-        for (final user in discovered.values) {
-          meshService.onBleDeviceDiscovered(user);
-        }
-      });
+      // Note: BLE→mesh pipeline is managed inside meshService.start(bleService:)
+      // called from MeshChatScreen — no duplicate subscription needed here.
     }
 
     // Track accepted connections — needed for visibility filtering
@@ -378,8 +370,6 @@ class AppState extends ChangeNotifier {
     _receivedRequestsSub?.cancel();
     _profileSub?.cancel();
     _notifSub?.cancel();
-    _bleMeshSub?.cancel();
-    _bleMeshSub = null;
     // Stop mesh scanning and Firebase sync watcher
     meshService.stop();
     _meshSync.stopWatching();
@@ -647,8 +637,11 @@ class AppState extends ChangeNotifier {
   Future<void> stopContinuousBleScan() async {
     _continuousBleSub?.cancel();
     _continuousBleSub = null;
-    await ble.stopContinuousScan();
-    debugPrint('[BLE] Continuous scan stopped');
+    // Only stop the hardware BLE scan if mesh service is not actively using it.
+    if (!meshService.isRunning) {
+      await ble.stopContinuousScan();
+    }
+    debugPrint('[BLE] Continuous scan stopped (mesh running: ${meshService.isRunning})');
   }
 
   /// Sync discoverable users to local cache (call when online).

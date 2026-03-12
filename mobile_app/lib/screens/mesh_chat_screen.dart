@@ -152,7 +152,9 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
         return;
       }
       setState(() => _meshActive = true);
-      await state.meshService.start();
+      await state.meshService.start(bleService: state.ble);
+      // Also start BLE advertising so peers can discover us
+      await state.startBleAdvertising();
     } else {
       setState(() => _meshActive = false);
       await state.meshService.stop();
