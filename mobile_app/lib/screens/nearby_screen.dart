@@ -30,38 +30,22 @@ class _NearbyScreenState extends State<NearbyScreen> {
   void initState() {
     super.initState();
     _refreshAdapterStatus();
-    // Auto-start continuous BLE scan + advertising when screen opens.
-    // Both devices must be advertising AND scanning simultaneously.
+    // Monitor Bluetooth adapter state changes only — scan does NOT auto-start.
+    // User must press the scanner button to start/stop scanning.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final state = Provider.of<AppState>(context, listen: false);
-      if (state.discoveryMode == DiscoveryMode.ble) {
-        await _refreshAdapterStatus();
-        if (_bleAdapterOn) {
-          setState(() => _status = _ScanStatus.scanning);
-          await state.startContinuousBleScan();
-          // Keep status as scanning while screen is open.
-          if (mounted) setState(() => _status = _ScanStatus.scanning);
-        }
-      }
-
       // Monitor Bluetooth adapter state changes (skip the initial/current emission).
-      // Automatically stops scan when BT is turned off and restarts when turned back on.
+      // Stops scan when BT is turned off; user must press the button to restart.
       _adapterSub = FlutterBluePlus.adapterState.skip(1).listen((btState) async {
         if (!mounted) return;
         final isOn = btState == BluetoothAdapterState.on;
         setState(() => _bleAdapterOn = isOn);
-
-        final appState = Provider.of<AppState>(context, listen: false);
         if (!isOn) {
-          // Bluetooth turned OFF — stop scan and reset status
+          // Bluetooth turned OFF — stop scan and reset status.
+          final appState = Provider.of<AppState>(context, listen: false);
           await appState.stopContinuousBleScan();
           if (mounted) setState(() => _status = _ScanStatus.idle);
-        } else if (appState.discoveryMode == DiscoveryMode.ble) {
-          // Bluetooth turned back ON — restart scan automatically
-          if (mounted) setState(() => _status = _ScanStatus.scanning);
-          await appState.startContinuousBleScan();
-          if (mounted) setState(() => _status = _ScanStatus.scanning);
         }
+        // When BT turns back ON, do NOT auto-restart — user must tap the button.
       });
     });
   }
@@ -137,14 +121,21 @@ class _NearbyScreenState extends State<NearbyScreen> {
     return true;
   }
 
-  // BLE mode uses continuous scan — button only needed for GPS mode.
-  // In BLE mode the button restarts the scan cycle (useful if user toggled BT off/on).
+  // Toggle BLE scan on/off when the user taps the scanner button.
+  // First tap → start scan; second tap → stop scan.
   void _handleScan() async {
     final state = Provider.of<AppState>(context, listen: false);
-    await _refreshAdapterStatus();
 
     if (state.discoveryMode == DiscoveryMode.ble) {
-      // Restart continuous scan.
+      // Stop if currently scanning.
+      if (_status == _ScanStatus.scanning) {
+        await state.stopContinuousBleScan();
+        if (mounted) setState(() { _status = _ScanStatus.idle; _errorMessage = ''; });
+        return;
+      }
+
+      // Start scan.
+      await _refreshAdapterStatus();
       if (!_bleAdapterOn) {
         setState(() {
           _status = _ScanStatus.error;
@@ -155,7 +146,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
       final ok = await _checkPermissions(DiscoveryMode.ble);
       if (!ok) return;
       setState(() { _status = _ScanStatus.scanning; _errorMessage = ''; });
-      await state.stopContinuousBleScan();
       await state.startContinuousBleScan();
       if (mounted) {
         if (state.bleScanError.isNotEmpty) {
@@ -253,12 +243,11 @@ class _NearbyScreenState extends State<NearbyScreen> {
                 avatar: const Icon(Icons.bluetooth, size: 16),
                 selected: state.discoveryMode == DiscoveryMode.ble,
                 onSelected: (_) async {
+                  // Stop any GPS scan and switch mode; user taps button to start BLE scan.
+                  await state.stopContinuousBleScan();
                   state.setDiscoveryMode(DiscoveryMode.ble);
                   await _refreshAdapterStatus();
-                  if (_bleAdapterOn && mounted) {
-                    setState(() => _status = _ScanStatus.scanning);
-                    await state.startContinuousBleScan();
-                  }
+                  if (mounted) setState(() { _status = _ScanStatus.idle; _errorMessage = ''; });
                 },
               ),
               const SizedBox(width: 10),
@@ -462,7 +451,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
 
         // SCANNER AREA
         GestureDetector(
-          onTap: _status == _ScanStatus.scanning ? null : _handleScan,
+          onTap: _handleScan,
           child: Container(
             height: 200,
             margin: const EdgeInsets.all(20),
@@ -497,8 +486,22 @@ class _NearbyScreenState extends State<NearbyScreen> {
                 if (_status == _ScanStatus.scanning)
                   const Positioned(
                     bottom: 0,
-                    child: Text("Searching for people nearby...",
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text("Searching for people nearby...",
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        SizedBox(height: 2),
+                        Text("Tap to stop",
+                            style: TextStyle(fontSize: 11, color: Colors.blue)),
+                      ],
+                    ),
+                  ),
+                if (_status == _ScanStatus.idle)
+                  const Positioned(
+                    bottom: 0,
+                    child: Text("Tap to start scanning",
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
                   ),
               ],
             ),

@@ -125,7 +125,7 @@ class ProfileScreen extends StatelessWidget {
 
                   // Posts grid
                   StreamBuilder<List<Post>>(
-                    stream: state.firebase.getUserPostsStream(user.uid),
+                    stream: state.firebase.getUserPostsStream(user.uid, mode: state.currentMode),
                     builder: (ctx, snap) {
                       final posts = snap.data ?? [];
                       if (posts.isEmpty) {

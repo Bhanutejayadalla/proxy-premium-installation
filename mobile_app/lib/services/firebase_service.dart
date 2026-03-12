@@ -259,10 +259,17 @@ class FirebaseService {
   //  USER POSTS
   // ─────────────────────────────────────────────
 
-  Stream<List<Post>> getUserPostsStream(String uid) {
-    return _db
+  /// Returns posts for [uid], optionally filtered to a specific [mode]
+  /// ('formal' or 'casual').  Pass [mode] to show only Social or only
+  /// Pro posts; omit it to show all posts (e.g. post-count stats).
+  Stream<List<Post>> getUserPostsStream(String uid, {String? mode}) {
+    Query<Map<String, dynamic>> query = _db
         .collection('posts')
-        .where('author_id', isEqualTo: uid)
+        .where('author_id', isEqualTo: uid);
+    if (mode != null) {
+      query = query.where('mode', isEqualTo: mode);
+    }
+    return query
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snap) =>

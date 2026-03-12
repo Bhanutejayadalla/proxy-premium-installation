@@ -265,7 +265,7 @@ class UserDetailScreen extends StatelessWidget {
                     fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             StreamBuilder<List<Post>>(
-              stream: FirebaseService().getUserPostsStream(user.uid),
+              stream: FirebaseService().getUserPostsStream(user.uid, mode: state.currentMode),
               builder: (context, snap) {
                 if (!snap.hasData || snap.data!.isEmpty) {
                   return const Center(

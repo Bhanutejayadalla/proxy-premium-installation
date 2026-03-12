@@ -198,7 +198,9 @@ class BleService {
     _continuousScanSub?.cancel();
     _continuousScanSub = null;
     try { await FlutterBluePlus.stopScan(); } catch (_) {}
-    await Future.delayed(const Duration(milliseconds: 200));
+    // Increase delay to 350 ms — older/MIUI devices need longer to release the
+    // previous scan before a new one can start without a "start too frequently" error.
+    await Future.delayed(const Duration(milliseconds: 350));
 
     if (!_continuousRunning) { _scanCycleInProgress = false; return; }
 
@@ -226,15 +228,33 @@ class BleService {
       }
     }, onError: (e) { _log('Scan stream error: $e'); });
 
+    // Try LOW_LATENCY first; fall back to BALANCED on devices that reject it
+    // (common on battery-saver MIUI / OxygenOS builds and older chipsets).
+    bool scanStarted = false;
     try {
       await FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 8),
         androidUsesFineLocation: true,
         androidScanMode: AndroidScanMode.lowLatency,
       );
+      scanStarted = true;
       _log('Scan cycle started — LOW_LATENCY, 8s window');
     } catch (e) {
-      _log('startScan failed: $e');
+      _log('startScan (lowLatency) failed: $e — retrying with BALANCED mode');
+    }
+    if (!scanStarted && _continuousRunning) {
+      // Brief pause so the OS can release any held scan lock.
+      await Future.delayed(const Duration(milliseconds: 600));
+      try {
+        await FlutterBluePlus.startScan(
+          timeout: const Duration(seconds: 8),
+          androidUsesFineLocation: true,
+          androidScanMode: AndroidScanMode.balanced,
+        );
+        _log('Scan cycle started — BALANCED (fallback), 8s window');
+      } catch (e2) {
+        _log('startScan (balanced) also failed: $e2');
+      }
     }
     } finally {
       _scanCycleInProgress = false;
