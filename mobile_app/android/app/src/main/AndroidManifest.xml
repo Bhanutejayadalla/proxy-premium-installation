@@ -34,6 +34,7 @@
     <!-- Wi-Fi + Nearby Connections (Google Nearby API) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- Android 13+ Nearby Wi-Fi Devices permission (required for Wi-Fi Direct in mesh) -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />

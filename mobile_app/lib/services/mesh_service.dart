@@ -1,56 +1,97 @@
 ﻿import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:nearby_connections/nearby_connections.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
+import '../ble_service.dart';
 import '../models.dart';
 import 'mesh_db_service.dart';
 import 'mesh_encryption_service.dart';
+import 'wifi_direct_service.dart';
 
 /// Maximum number of relay hops before a packet is discarded.
 const int kMaxHops = 5;
 
-/// Unique service ID for Proxi mesh — must match on both devices.
-const String kProxiServiceId = 'com.proxi.mesh.v1';
-
-/// A peer currently connected via Google Nearby Connections.
+/// A peer currently connected via Wi-Fi Direct socket.
 class MeshPeer {
   final String uid;
-  final String endpointId;
+  final String endpointId; // Wi-Fi Direct MAC address or socket address
   MeshPeer({required this.uid, required this.endpointId});
 }
 
+/// ──────────────────────────────────────────────────────────────────────────
+/// MeshService — BLE Discovery + Wi-Fi Direct Data Transfer
+///
+/// Architecture:
+///   1. BLE scans for nearby Proxi devices (broadcasts uid, username, capability)
+///   2. When a BLE peer is detected, initiate Wi-Fi Direct peer discovery
+///   3. Connect to the Wi-Fi Direct peer
+///   4. Open TCP socket (port 8888) for bidirectional messaging
+///   5. Messages relay through connected peers to form a mesh
+/// ──────────────────────────────────────────────────────────────────────────
 class MeshService extends ChangeNotifier {
   final MeshDbService _db = MeshDbService();
   final MeshEncryptionService _crypto = MeshEncryptionService();
+  final WifiDirectService _wifiDirect = WifiDirectService();
   final _uuid = const Uuid();
 
   String? _myUid;
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
-  final Map<String, String> _endpointToUid = {};
+  /// Connected peers: uid → socket address (from Wi-Fi Direct)
   final Map<String, String> _connectedPeers = {};
 
-  // Track known endpoints that have been found but not yet connected,
-  // so we can attempt reconnect after a disconnect.
-  final Set<String> _knownEndpoints = {};
-  final Set<String> _pendingConnections = {};
+  /// BLE-discovered peers waiting for Wi-Fi Direct connection: uid → BleDiscoveredUser
+  final Map<String, BleDiscoveredUser> _bleDiscoveredPeers = {};
+
+  /// Wi-Fi Direct peer address → uid mapping (built from handshake)
+  final Map<String, String> _addressToUid = {};
+
+  /// Peers we're in the process of connecting to via Wi-Fi Direct
+  final Set<String> _pendingWifiConnections = {};
+
+  /// Socket-connected peer addresses
+  final Set<String> _socketConnectedPeers = {};
 
   /// Recently seen message IDs — prevents processing the same relayed message twice.
+  /// Uses a Queue for proper FIFO eviction when the limit is exceeded.
   final Set<String> _seenMessageIds = {};
+  final Queue<String> _seenIdsQueue = Queue<String>();
   static const int _maxSeenMessages = 500;
 
-  // Health-check timer — restarts discovery/advertising if peers drop.
+  /// Wi-Fi Direct connection state
+  bool _isWifiDirectConnected = false;
+  bool _isGroupOwner = false;
+  String _groupOwnerAddress = '';
+  bool get isWifiDirectConnected => _isWifiDirectConnected;
+  bool get isGroupOwner => _isGroupOwner;
+
+  // Health-check timer — restarts discovery if peers drop.
   Timer? _healthTimer;
+  // Wi-Fi Direct discovery refresh timer
+  Timer? _wifiDiscoveryTimer;
+
+  StreamSubscription? _wifiEventSub;
+  StreamSubscription<Map<String, BleDiscoveredUser>>? _bleScanSub;
 
   List<MeshPeer> get peers => _connectedPeers.entries
       .map((e) => MeshPeer(uid: e.key, endpointId: e.value))
       .toList();
 
+  /// Number of BLE-discovered devices (even if not yet Wi-Fi connected)
+  int get bleDiscoveredCount => _bleDiscoveredPeers.length;
+
+  /// Number of socket-connected peers (fully connected for messaging)
+  int get socketConnectedCount => _socketConnectedPeers.length;
+
   final _incomingCtrl = StreamController<MeshMessage>.broadcast();
   Stream<MeshMessage> get incomingMessages => _incomingCtrl.stream;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Init & Permissions
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Future<bool> init(String myUid) async {
     _myUid = myUid;
@@ -60,7 +101,7 @@ class MeshService extends ChangeNotifier {
       return false;
     }
 
-    // Nearby Connections requires Location/GPS to be ON (Android).
+    // Wi-Fi Direct requires Location/GPS to be ON (Android).
     try {
       final locStatus = await Permission.location.serviceStatus;
       if (!locStatus.isEnabled) {
@@ -71,7 +112,14 @@ class MeshService extends ChangeNotifier {
       _log('Location service check error (non-fatal): $e');
     }
 
-    _log('init uid=$myUid permissions=OK location=ON');
+    // Initialize native Wi-Fi Direct
+    final wifiOk = await _wifiDirect.initialize();
+    if (!wifiOk) {
+      _log('Wi-Fi Direct initialization FAILED');
+      return false;
+    }
+
+    _log('init uid=$myUid permissions=OK location=ON wifiDirect=OK');
     return true;
   }
 
@@ -86,227 +134,319 @@ class MeshService extends ChangeNotifier {
 
     final bleOk = bleResults.values.every((s) => s.isGranted);
 
-    // Wi-Fi Direct permissions.
-    // NEARBY_WIFI_DEVICES is required on Android 13+ for Wi-Fi P2P.
-    final wifiResults = await [
-      Permission.nearbyWifiDevices,
-    ].request();
-
+    // Wi-Fi Direct permissions: NEARBY_WIFI_DEVICES (Android 13+)
+    final wifiResults = await [Permission.nearbyWifiDevices].request();
     final wifiOk = wifiResults[Permission.nearbyWifiDevices]?.isGranted == true;
     _log('BLE permissions ok=$bleOk, NEARBY_WIFI_DEVICES ok=$wifiOk');
 
-    // BLE must be granted; Wi-Fi Direct is optional (falls back to BLE only).
+    // Both BLE and Wi-Fi are required for mesh.
     return bleOk;
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Start / Stop
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> start() async {
     if (_isRunning || _myUid == null) return;
     _isRunning = true;
     notifyListeners();
-    _log('Starting mesh for $_myUid');
-    await _startNearby();
+    _log('══════ Starting mesh for $_myUid ══════');
 
-    // Health-check: restart discovery/advertising periodically.
+    // Listen to Wi-Fi Direct events from native layer
+    _wifiEventSub?.cancel();
+    _wifiEventSub = _wifiDirect.events.listen(_onWifiDirectEvent);
+
+    // Start Wi-Fi Direct peer discovery
+    await _startWifiDirectDiscovery();
+
+    // Periodically refresh Wi-Fi Direct discovery (it times out)
+    _wifiDiscoveryTimer?.cancel();
+    _wifiDiscoveryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (_isRunning) _refreshWifiDiscovery();
+    });
+
+    // Health-check: restart discovery if no peers
     _healthTimer?.cancel();
     _healthTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!_isRunning) return;
-      if (_connectedPeers.isEmpty) {
-        _log('Health-check: no peers — full restart');
-        _restartNearby();
-      } else {
-        _log('Health-check: ${_connectedPeers.length} peers — refreshing discovery');
-        _refreshDiscovery();
+      _log('Health-check: ${_connectedPeers.length} peers, '
+          '${_socketConnectedPeers.length} sockets, '
+          'wifi=${_isWifiDirectConnected}');
+      if (_connectedPeers.isEmpty && _isRunning) {
+        _log('Health-check: no peers — restarting discovery');
+        _startWifiDirectDiscovery();
       }
     });
   }
 
-  Future<void> _startNearby() async {
-    try {
-      final adOk = await Nearby().startAdvertising(
-        _myUid!,
-        Strategy.P2P_CLUSTER,
-        onConnectionInitiated: _onConnectionInitiated,
-        onConnectionResult: _onConnectionResult,
-        onDisconnected: _onDisconnected,
-        serviceId: kProxiServiceId,
-      );
-      _log('Advertising started: $adOk');
-    } catch (e) {
-      _log('startAdvertising error: $e');
-    }
-
-    try {
-      final disOk = await Nearby().startDiscovery(
-        _myUid!,
-        Strategy.P2P_CLUSTER,
-        onEndpointFound: _onEndpointFound,
-        onEndpointLost: _onEndpointLost,
-        serviceId: kProxiServiceId,
-      );
-      _log('Discovery started: $disOk');
-    } catch (e) {
-      _log('startDiscovery error: $e');
-    }
-  }
-
-  Future<void> _restartNearby() async {
-    try {
-      await Nearby().stopAdvertising();
-      await Nearby().stopDiscovery();
-    } catch (_) {}
-    _pendingConnections.clear();
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (_isRunning) await _startNearby();
-  }
-
-  /// Restart only discovery (keeps existing connections alive).
-  Future<void> _refreshDiscovery() async {
-    try { await Nearby().stopDiscovery(); } catch (_) {}
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!_isRunning) return;
-    try {
-      await Nearby().startDiscovery(
-        _myUid!,
-        Strategy.P2P_CLUSTER,
-        onEndpointFound: _onEndpointFound,
-        onEndpointLost: _onEndpointLost,
-        serviceId: kProxiServiceId,
-      );
-      _log('Discovery refreshed');
-    } catch (e) {
-      _log('Discovery refresh error: $e');
-    }
-  }
-
   Future<void> stop() async {
     if (!_isRunning) return;
+    _log('══════ Stopping mesh ══════');
     _healthTimer?.cancel();
     _healthTimer = null;
-    try {
-      await Nearby().stopAdvertising();
-      await Nearby().stopDiscovery();
-      await Nearby().stopAllEndpoints();
-    } catch (_) {}
+    _wifiDiscoveryTimer?.cancel();
+    _wifiDiscoveryTimer = null;
+    _wifiEventSub?.cancel();
+    _wifiEventSub = null;
+    _bleScanSub?.cancel();
+    _bleScanSub = null;
+
+    await _wifiDirect.stopDiscovery();
+    await _wifiDirect.disconnect();
+
     _isRunning = false;
+    _isWifiDirectConnected = false;
+    _isGroupOwner = false;
+    _groupOwnerAddress = '';
     _connectedPeers.clear();
-    _endpointToUid.clear();
-    _knownEndpoints.clear();
-    _pendingConnections.clear();
+    _bleDiscoveredPeers.clear();
+    _seenIdsQueue.clear();
+    _addressToUid.clear();
+    _pendingWifiConnections.clear();
+    _socketConnectedPeers.clear();
     _seenMessageIds.clear();
     notifyListeners();
     _log('Mesh stopped');
   }
 
-  void _onEndpointFound(String endpointId, String endpointName, String serviceId) {
-    _log('Endpoint found: $endpointName ($endpointId)');
-    _endpointToUid[endpointId] = endpointName;
-    _knownEndpoints.add(endpointId);
-    // Skip if already connected or a connection request is in-flight.
-    if (_connectedPeers.containsValue(endpointId) ||
-        _pendingConnections.contains(endpointId)) {
-      _log('Already connected/connecting to $endpointId — skipping');
-      return;
-    }
-    _pendingConnections.add(endpointId);
-    Nearby().requestConnection(
-      _myUid!,
-      endpointId,
-      onConnectionInitiated: _onConnectionInitiated,
-      onConnectionResult: _onConnectionResult,
-      onDisconnected: _onDisconnected,
-    ).catchError((e) {
-      _pendingConnections.remove(endpointId);
-      _log('requestConnection error for $endpointId: $e');
-      return false;
-    });
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Wi-Fi Direct Discovery & Connection
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _startWifiDirectDiscovery() async {
+    _log('Starting Wi-Fi Direct peer discovery');
+    await _wifiDirect.startDiscovery();
   }
 
-  void _onEndpointLost(String? endpointId) {
-    if (endpointId == null) return;
-    final uid = _endpointToUid.remove(endpointId);
-    if (uid != null) {
-      _connectedPeers.remove(uid);
+  Future<void> _refreshWifiDiscovery() async {
+    if (!_isRunning) return;
+    _log('Refreshing Wi-Fi Direct discovery');
+    await _wifiDirect.stopDiscovery();
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (_isRunning) await _wifiDirect.startDiscovery();
+  }
+
+  /// Called when BLE discovers a nearby Proxi user → trigger Wi-Fi Direct connection.
+  void onBleDeviceDiscovered(BleDiscoveredUser bleUser) {
+    if (bleUser.uid == _myUid) return; // Skip self
+    if (!_isRunning) return;
+
+    final existed = _bleDiscoveredPeers.containsKey(bleUser.uid);
+    _bleDiscoveredPeers[bleUser.uid] = bleUser;
+
+    if (!existed) {
+      _log('BLE discovered new peer: ${bleUser.uid} (${bleUser.username}) '
+          'rssi=${bleUser.rssi} dist=${bleUser.distanceM.toStringAsFixed(1)}m');
       notifyListeners();
-      _log('Endpoint lost: $uid ($endpointId)');
     }
   }
 
-  void _onConnectionInitiated(String endpointId, ConnectionInfo info) {
-    _log('Connection initiated: ${info.endpointName} incoming=${info.isIncomingConnection}');
-    _endpointToUid[endpointId] = info.endpointName;
-    Nearby().acceptConnection(
-      endpointId,
-      onPayLoadRecieved: _onPayloadReceived,
-      onPayloadTransferUpdate: (id, update) {},
-    ).catchError((e) {
-      _log('acceptConnection error: $e');
-      return false;
-    });
+  /// Attempt to Wi-Fi Direct connect to a discovered peer by MAC address.
+  Future<void> connectToWifiPeer(String address) async {
+    if (_pendingWifiConnections.contains(address)) return;
+    _pendingWifiConnections.add(address);
+    _log('Initiating Wi-Fi Direct connection to $address');
+    final ok = await _wifiDirect.connectToPeer(address);
+    if (!ok) {
+      _pendingWifiConnections.remove(address);
+      _log('Wi-Fi Direct connect request FAILED for $address');
+    }
   }
 
-  void _onConnectionResult(String endpointId, Status status) {
-    _log('Connection result: $status for $endpointId');
-    _pendingConnections.remove(endpointId);
-    if (status == Status.CONNECTED) {
-      final uid = _endpointToUid[endpointId];
-      if (uid != null && uid != _myUid) {
-        _connectedPeers[uid] = endpointId;
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Wi-Fi Direct Event Handler
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _onWifiDirectEvent(WifiDirectEvent event) {
+    _log('WFD event: ${event.type} ${event.data}');
+
+    switch (event.type) {
+      case 'stateChanged':
+        final enabled = event.data['enabled'] == true;
+        _log('Wi-Fi P2P ${enabled ? "ENABLED" : "DISABLED"}');
+        break;
+
+      case 'peersChanged':
+        _onWifiPeersChanged(event.data);
+        break;
+
+      case 'connectionChanged':
+        _onWifiConnectionChanged(event.data);
+        break;
+
+      case 'disconnected':
+        _log('Wi-Fi Direct disconnected');
+        _isWifiDirectConnected = false;
+        _isGroupOwner = false;
+        _groupOwnerAddress = '';
+        _socketConnectedPeers.clear();
+        _connectedPeers.clear();
+        _addressToUid.clear();
         notifyListeners();
-        _log('Peer connected: $uid (${peers.length} total)');
-        _deliverPendingTo(uid, endpointId);
+        // Restart discovery to reconnect
+        if (_isRunning) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (_isRunning) _startWifiDirectDiscovery();
+          });
+        }
+        break;
+
+      case 'peerSocketConnected':
+        final addr = event.data['address'] as String? ?? '';
+        _log('Socket connected to $addr');
+        _socketConnectedPeers.add(addr);
+        // Send handshake with our UID so the other side can map address→uid
+        _sendHandshake(addr);
+        notifyListeners();
+        break;
+
+      case 'peerSocketDisconnected':
+        final addr = event.data['address'] as String? ?? '';
+        _log('Socket disconnected from $addr');
+        _socketConnectedPeers.remove(addr);
+        final uid = _addressToUid.remove(addr);
+        if (uid != null) {
+          _connectedPeers.remove(uid);
+          _log('Peer $uid removed (socket disconnected)');
+        }
+        notifyListeners();
+        break;
+
+      case 'messageReceived':
+        _onMessageReceived(event.data);
+        break;
+
+      case 'socketError':
+        _log('Socket error: ${event.data['error']}');
+        break;
+
+      case 'thisDeviceChanged':
+        _log('This device: ${event.data['name']} (${event.data['address']})');
+        break;
+
+      case 'socketServerStarted':
+        _log('Socket server started on port ${event.data['port']}');
+        break;
+
+      case 'channelDisconnected':
+        _log('Wi-Fi P2P channel disconnected — reinitializing');
+        if (_isRunning) {
+          _wifiDirect.initialize().then((_) => _startWifiDirectDiscovery());
+        }
+        break;
+    }
+  }
+
+  void _onWifiPeersChanged(Map<String, dynamic> data) {
+    final peersList = data['peers'] as List? ?? [];
+    _log('Wi-Fi Direct peers: ${peersList.length}');
+
+    for (final p in peersList) {
+      final peer = Map<String, dynamic>.from(p as Map);
+      final name = peer['name'] as String? ?? '';
+      final address = peer['address'] as String? ?? '';
+      final status = peer['status'] as String? ?? '';
+      _log('  WFD Peer: $name ($address) status=$status');
+
+      // Auto-connect to available peers that we haven't connected or pending yet.
+      if (status == 'available' &&
+          !_pendingWifiConnections.contains(address) &&
+          !_socketConnectedPeers.contains(address)) {
+        _log('Auto-connecting to available Wi-Fi peer: $address');
+        connectToWifiPeer(address);
       }
-    } else {
-      // Don't remove from _endpointToUid — the peer may still accept
-      // an incoming connection from the other direction.
-      _log('Connection failed for $endpointId: $status');
     }
+    notifyListeners();
   }
 
-  void _onDisconnected(String endpointId) {
-    final uid = _endpointToUid.remove(endpointId);
-    _pendingConnections.remove(endpointId);
-    if (uid != null) {
-      _connectedPeers.remove(uid);
-      notifyListeners();
-      _log('Peer disconnected: $uid — will retry via discovery');
-    }
-    // Trigger a discovery restart so we can reconnect shortly.
-    if (_isRunning) {
-      Future.delayed(const Duration(seconds: 3), () {
-        if (_isRunning) _restartNearby();
-      });
-    }
+  void _onWifiConnectionChanged(Map<String, dynamic> data) {
+    _isWifiDirectConnected = data['connected'] == true;
+    _isGroupOwner = data['isGroupOwner'] == true;
+    _groupOwnerAddress = data['groupOwnerAddress'] as String? ?? '';
+    _pendingWifiConnections.clear();
+
+    _log('Wi-Fi Direct: connected=$_isWifiDirectConnected, '
+        'GO=$_isGroupOwner, GOAddr=$_groupOwnerAddress');
+    notifyListeners();
   }
 
-  void _onPayloadReceived(String endpointId, Payload payload) async {
-    if (payload.type != PayloadType.BYTES || payload.bytes == null) return;
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Handshake Protocol (identify UID over socket)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _sendHandshake(String peerAddress) {
+    if (_myUid == null) return;
+    final handshake = jsonEncode({
+      'type': 'handshake',
+      'uid': _myUid,
+    });
+    _wifiDirect.sendMessage(handshake, targetAddress: peerAddress);
+    _log('Sent handshake to $peerAddress');
+  }
+
+  void _handleHandshake(String fromAddress, Map<String, dynamic> data) {
+    final uid = data['uid'] as String?;
+    if (uid == null || uid == _myUid) return;
+    _addressToUid[fromAddress] = uid;
+    _connectedPeers[uid] = fromAddress;
+    _log('Handshake complete: $uid ↔ $fromAddress '
+        '(${_connectedPeers.length} peers total)');
+    notifyListeners();
+
+    // Deliver any pending messages for this peer
+    _deliverPendingTo(uid, fromAddress);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Message Receive / Process
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _onMessageReceived(Map<String, dynamic> data) {
+    final rawMessage = data['message'] as String? ?? '';
+    final fromAddress = data['fromAddress'] as String? ?? '';
+
+    if (rawMessage.isEmpty) return;
+
     try {
-      final jsonStr = utf8.decode(payload.bytes!);
-      final packet = MeshWirePacket.fromJson(jsonStr);
-      _log('Message received from $endpointId: ${packet.messageId}');
-      await onPacketReceived(packet);
+      final parsed = jsonDecode(rawMessage) as Map<String, dynamic>;
+      final type = parsed['type'] as String? ?? '';
+
+      if (type == 'handshake') {
+        _handleHandshake(fromAddress, parsed);
+        return;
+      }
+
+      // It's a mesh packet
+      final packet = MeshWirePacket.fromJson(rawMessage);
+      _log('Packet received from $fromAddress: ${packet.messageId}');
+      _onPacketReceived(packet);
     } catch (e) {
-      _log('Payload parse error: $e');
+      _log('Message parse error from $fromAddress: $e');
     }
   }
 
-  Future<void> onPacketReceived(MeshWirePacket packet) async {
+  Future<void> _onPacketReceived(MeshWirePacket packet) async {
     final myUid = _myUid;
     if (myUid == null) return;
 
-    // Deduplicate: skip messages we've already processed/relayed.
+    // Deduplicate
     if (_seenMessageIds.contains(packet.messageId)) {
       _log('Duplicate packet ${packet.messageId} — dropping');
       return;
     }
     _seenMessageIds.add(packet.messageId);
+    _seenIdsQueue.add(packet.messageId);
     if (_seenMessageIds.length > _maxSeenMessages) {
-      _seenMessageIds.remove(_seenMessageIds.first);
+      final oldest = _seenIdsQueue.removeFirst();
+      _seenMessageIds.remove(oldest);
     }
 
     if (packet.receiverId == myUid) {
+      // Message is for us — decrypt and store
       try {
-        final plaintext = _crypto.decrypt(packet.encryptedPayload, packet.senderId, myUid);
+        final plaintext =
+            _crypto.decrypt(packet.encryptedPayload, packet.senderId, myUid);
         final msg = MeshMessage(
           messageId: packet.messageId,
           senderId: packet.senderId,
@@ -319,31 +459,111 @@ class MeshService extends ChangeNotifier {
         );
         await _db.insertMessage(msg);
         _incomingCtrl.add(msg);
+        _log('Message delivered: ${packet.messageId} from ${packet.senderId}');
       } catch (e) {
-        _log('Decrypt error: $e');
+        _log('Decrypt error for ${packet.messageId}: $e');
       }
     } else if (packet.hopCount < kMaxHops) {
-      // Relay to ALL connected peers (not just the first match) to improve delivery.
+      // Relay to all connected peers
+      _log('Relaying ${packet.messageId} (hop ${packet.hopCount})');
       await _relayPacket(packet);
+    } else {
+      _log('Dropping ${packet.messageId}: exceeded max hops');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  Send / Relay Messages
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<MeshMessage> sendMessage(
+      {required String receiverUid, required String text}) async {
+    final myUid = _myUid;
+    if (myUid == null) throw StateError('MeshService.sendMessage called before init()');
+    final msg = MeshMessage(
+      messageId: _uuid.v4(),
+      senderId: myUid,
+      receiverId: receiverUid,
+      messageText: text,
+      timestamp: DateTime.now(),
+      deliveryStatus: MeshDeliveryStatus.pending,
+    );
+    msg.encryptedPayload = _crypto.encrypt(text, myUid, receiverUid);
+    await _db.insertMessage(msg);
+
+    final peerAddress = _connectedPeers[receiverUid];
+    if (peerAddress != null) {
+      // Direct delivery
+      final ok = await _sendToAddress(peerAddress, msg);
+      if (ok) {
+        msg.deliveryStatus = MeshDeliveryStatus.delivered;
+        await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
+        _log('Message sent directly to $receiverUid');
+      }
+    } else {
+      // Broadcast relay to all peers
+      _log('Receiver $receiverUid not directly connected — broadcasting relay');
+      await _broadcastRelay(msg);
+    }
+    notifyListeners();
+    return msg;
+  }
+
+  Future<bool> _sendToAddress(String address, MeshMessage msg) async {
+    try {
+      final packet = MeshWirePacket(
+        messageId: msg.messageId,
+        senderId: msg.senderId,
+        receiverId: msg.receiverId,
+        encryptedPayload: msg.encryptedPayload,
+        timestamp: msg.timestamp.millisecondsSinceEpoch,
+        hopCount: msg.hopCount,
+      );
+      final ok = await _wifiDirect.sendMessage(
+        packet.toJson(),
+        targetAddress: address,
+      );
+      _log('Send to $address: ${ok ? "OK" : "FAILED"}');
+      return ok;
+    } catch (e) {
+      _log('Send error to $address: $e');
+      return false;
+    }
+  }
+
+  Future<void> _broadcastRelay(MeshMessage msg) async {
+    if (msg.hopCount >= kMaxHops) return;
+    bool anyOk = false;
+    for (final entry in _connectedPeers.entries) {
+      if (entry.key == msg.senderId) continue;
+      final ok = await _sendToAddress(entry.value, msg);
+      if (ok) anyOk = true;
+    }
+    if (anyOk) {
+      await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
     }
   }
 
   Future<void> _relayPacket(MeshWirePacket packet) async {
     final hopPacket = packet.withIncrementedHop();
-    final bytes = Uint8List.fromList(utf8.encode(hopPacket.toJson()));
+    final json = hopPacket.toJson();
     bool relayed = false;
+
     for (final entry in _connectedPeers.entries) {
-      if (entry.key == packet.senderId) continue; // Don't echo back to sender.
+      if (entry.key == packet.senderId) continue; // Don't echo to sender
       try {
-        await Nearby().sendBytesPayload(entry.value, bytes);
-        _log('Relayed ${packet.messageId} to ${entry.key}');
-        relayed = true;
+        final ok = await _wifiDirect.sendMessage(json, targetAddress: entry.value);
+        if (ok) {
+          _log('Relayed ${packet.messageId} to ${entry.key}');
+          relayed = true;
+        }
       } catch (e) {
         _log('Relay error to ${entry.key}: $e');
       }
     }
+
     if (!relayed) {
-      // Store for later delivery when a peer connects.
+      // Store for later delivery
       await _db.insertMessage(MeshMessage(
         messageId: packet.messageId,
         senderId: packet.senderId,
@@ -357,76 +577,17 @@ class MeshService extends ChangeNotifier {
     }
   }
 
-  Future<MeshMessage> sendMessage({required String receiverUid, required String text}) async {
-    final myUid = _myUid!;
-    final msg = MeshMessage(
-      messageId: _uuid.v4(),
-      senderId: myUid,
-      receiverId: receiverUid,
-      messageText: text,
-      timestamp: DateTime.now(),
-      deliveryStatus: MeshDeliveryStatus.pending,
-    );
-    msg.encryptedPayload = _crypto.encrypt(text, myUid, receiverUid);
-    await _db.insertMessage(msg);
-
-    final endpointId = _connectedPeers[receiverUid];
-    if (endpointId != null) {
-      final ok = await _sendToEndpoint(endpointId, msg);
-      if (ok) {
-        msg.deliveryStatus = MeshDeliveryStatus.delivered;
-        await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
-      }
-    } else {
-      // Broadcast relay to all peers — message will hop toward destination.
-      await _broadcastRelay(msg);
-    }
-    notifyListeners();
-    return msg;
-  }
-
-  Future<bool> _sendToEndpoint(String endpointId, MeshMessage msg) async {
-    try {
-      final packet = MeshWirePacket(
-        messageId: msg.messageId,
-        senderId: msg.senderId,
-        receiverId: msg.receiverId,
-        encryptedPayload: msg.encryptedPayload,
-        timestamp: msg.timestamp.millisecondsSinceEpoch,
-        hopCount: msg.hopCount,
-      );
-      await Nearby().sendBytesPayload(
-        endpointId,
-        Uint8List.fromList(utf8.encode(packet.toJson())),
-      );
-      _log('Sent to $endpointId');
-      return true;
-    } catch (e) {
-      _log('Send error: $e');
-      return false;
-    }
-  }
-
-  Future<void> _broadcastRelay(MeshMessage msg) async {
-    if (msg.hopCount >= kMaxHops) return;
-    // Send to ALL connected peers; each will forward toward the destination.
-    bool anyOk = false;
-    for (final entry in _connectedPeers.entries) {
-      if (entry.key == msg.senderId) continue;
-      final ok = await _sendToEndpoint(entry.value, msg);
-      if (ok) anyOk = true;
-    }
-    if (anyOk) {
-      await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
-    }
-  }
-
-  Future<void> _deliverPendingTo(String uid, String endpointId) async {
+  Future<void> _deliverPendingTo(String uid, String address) async {
     final pending = await _db.getPendingForReceiver(uid);
     for (final msg in pending) {
       if (msg.hopCount >= kMaxHops) continue;
-      final ok = await _sendToEndpoint(endpointId, msg);
-      if (ok) await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
+      final ok = await _sendToAddress(address, msg);
+      if (ok) {
+        await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
+      }
+    }
+    if (pending.isNotEmpty) {
+      _log('Delivered ${pending.length} pending messages to $uid');
     }
   }
 

@@ -37,6 +37,14 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Sync toggle with the service’s actual running state (e.g. if user navigated
+    // away without toggling off, the mesh is still running when they return).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final meshRunning =
+          Provider.of<AppState>(context, listen: false).meshService.isRunning;
+      if (meshRunning != _meshActive) setState(() => _meshActive = meshRunning);
+    });
     _load();
     _subscribeToIncoming();
   }
@@ -244,6 +252,9 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
             _MeshStatusBanner(
               isMeshActive: _meshActive,
               peerCount: state.meshService.peers.length,
+              bleDiscoveredCount: state.meshService.bleDiscoveredCount,
+              isWifiConnected: state.meshService.isWifiDirectConnected,
+              socketCount: state.meshService.socketConnectedCount,
             ),
 
             // ── Message list ─────────────────────────────────────────────
@@ -283,10 +294,16 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 class _MeshStatusBanner extends StatelessWidget {
   final bool isMeshActive;
   final int peerCount;
+  final int bleDiscoveredCount;
+  final bool isWifiConnected;
+  final int socketCount;
 
   const _MeshStatusBanner({
     required this.isMeshActive,
     required this.peerCount,
+    required this.bleDiscoveredCount,
+    required this.isWifiConnected,
+    required this.socketCount,
   });
 
   @override
@@ -312,25 +329,62 @@ class _MeshStatusBanner extends StatelessWidget {
       );
     }
 
+    String statusText;
+    if (peerCount > 0) {
+      statusText = '$peerCount peer${peerCount > 1 ? 's' : ''} connected via Wi-Fi Direct';
+    } else if (isWifiConnected && socketCount > 0) {
+      statusText = 'Wi-Fi Direct connected — handshaking…';
+    } else if (isWifiConnected) {
+      statusText = 'Wi-Fi Direct group formed — opening socket…';
+    } else if (bleDiscoveredCount > 0) {
+      statusText = '$bleDiscoveredCount device${bleDiscoveredCount > 1 ? 's' : ''} found via BLE — connecting Wi-Fi Direct…';
+    } else {
+      statusText = 'Scanning via BLE + Wi-Fi Direct…';
+    }
+
+    final wifiColor = isWifiConnected ? Colors.greenAccent : Colors.amber;
+
     return Container(
       width: double.infinity,
-      color: Colors.green.shade900.withValues(alpha: 0.6),
+      color: peerCount > 0
+          ? Colors.green.shade900.withValues(alpha: 0.6)
+          : Colors.orange.shade900.withValues(alpha: 0.5),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.bluetooth_searching,
-              size: 14, color: Colors.greenAccent),
-          const SizedBox(width: 4),
-          const Icon(Icons.wifi, size: 14, color: Colors.greenAccent),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              peerCount == 0
-                  ? 'Scanning via BLE + Wi-Fi Direct…'
-                  : '$peerCount nearby device${peerCount > 1 ? 's' : ''} connected (BLE + Wi-Fi)',
-              style: const TextStyle(fontSize: 11, color: Colors.greenAccent),
-            ),
+          Row(
+            children: [
+              const Icon(Icons.bluetooth_searching,
+                  size: 14, color: Colors.greenAccent),
+              const SizedBox(width: 4),
+              Icon(Icons.wifi, size: 14, color: wifiColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  statusText,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: peerCount > 0
+                          ? Colors.greenAccent
+                          : Colors.amber),
+                ),
+              ),
+            ],
           ),
+          if (bleDiscoveredCount > 0 || socketCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'BLE: $bleDiscoveredCount found  •  '
+                'Wi-Fi: ${isWifiConnected ? "✓" : "—"}  •  '
+                'Sockets: $socketCount  •  '
+                'Peers: $peerCount',
+                style: TextStyle(
+                    fontSize: 9,
+                    color: Colors.white.withValues(alpha: 0.5)),
+              ),
+            ),
         ],
       ),
     );

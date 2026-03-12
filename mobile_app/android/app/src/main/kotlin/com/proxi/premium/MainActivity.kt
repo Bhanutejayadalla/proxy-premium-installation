@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
@@ -34,10 +35,14 @@ class MainActivity : FlutterActivity() {
     private var advertiseCallback: AdvertiseCallback? = null
     private var isAdvertising = false
 
+    // Wi-Fi Direct plugin for mesh networking
+    private var wifiDirectPlugin: WifiDirectPlugin? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         Log.d(TAG, "Registering MethodChannel: $CHANNEL")
 
+        // ── BLE Advertiser channel (existing) ─────────────────────────────
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 Log.d(TAG, "MethodChannel call: ${call.method}")
@@ -60,6 +65,19 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // ── Wi-Fi Direct channel (mesh networking) ────────────────────────
+        val wfdMethodChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.proxi.wifi_direct"
+        )
+        val wfdEventChannel = EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.proxi.wifi_direct/events"
+        )
+        wifiDirectPlugin = WifiDirectPlugin(this, wfdMethodChannel)
+        wfdMethodChannel.setMethodCallHandler(wifiDirectPlugin)
+        wfdEventChannel.setStreamHandler(wifiDirectPlugin)
     }
 
     /** Returns true if this device supports BLE peripheral/advertising mode. */
@@ -172,7 +190,7 @@ class MainActivity : FlutterActivity() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
                 isAdvertising = true
                 Log.i(TAG, ">>> BLE Advertising STARTED for uid=$uidPreview, username=$usernamePrefix")
-                result.success(true)
+                runOnUiThread { result.success(true) }
             }
 
             override fun onStartFailure(errorCode: Int) {
@@ -188,9 +206,9 @@ class MainActivity : FlutterActivity() {
                 Log.e(TAG, ">>> BLE Advertising FAILED: $errorMsg")
                 if (errorCode == ADVERTISE_FAILED_ALREADY_STARTED) {
                     isAdvertising = true
-                    result.success(true)
+                    runOnUiThread { result.success(true) }
                 } else {
-                    result.error("ADV_FAILED", errorMsg, "errorCode=$errorCode")
+                    runOnUiThread { result.error("ADV_FAILED", errorMsg, "errorCode=$errorCode") }
                 }
             }
         }
@@ -225,11 +243,13 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "onDestroy â€” stopping advertising")
+        Log.d(TAG, "onDestroy — stopping advertising + WiFi Direct")
         if (advertiser != null && advertiseCallback != null) {
             try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
         }
         isAdvertising = false
+        wifiDirectPlugin?.dispose()
+        wifiDirectPlugin = null
         super.onDestroy()
     }
 }

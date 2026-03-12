@@ -676,10 +676,10 @@ packages:
     dependency: "direct main"
     description:
       name: intl
-      sha256: "3bc132a9dbce73a7e4a21a17d06e1878839ffbf975568bc875c60537824b0c4d"
+      sha256: d6f56758b7d3014a48af9701c085700aac781a92a87a62b1333b46d8879661cf
       url: "https://pub.dev"
     source: hosted
-    version: "0.18.1"
+    version: "0.19.0"
   js:
     dependency: transitive
     description:
@@ -808,14 +808,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.17.4"
-  nearby_connections:
-    dependency: "direct main"
-    description:
-      name: nearby_connections
-      sha256: "94d500bdb11f9a3db3b1cb2949ab438107e581f0142380efc17ecc8038e99369"
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.3.0"
   nested:
     dependency: transitive
     description:

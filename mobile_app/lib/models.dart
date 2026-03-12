@@ -213,6 +213,7 @@ class AppUser {
     double? locationLng,
     double? distanceKm,
     String? fcmToken,
+    String? phoneNumber,
     String? visibility,
     bool? discoverable,
     String? locationSharing,
@@ -251,6 +252,7 @@ class AppUser {
       locationLng: locationLng ?? this.locationLng,
       distanceKm: distanceKm ?? this.distanceKm,
       fcmToken: fcmToken ?? this.fcmToken,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
       visibility: visibility ?? this.visibility,
       discoverable: discoverable ?? this.discoverable,
       locationSharing: locationSharing ?? this.locationSharing,
@@ -525,7 +527,8 @@ class MeshMessage {
         'message_id': messageId,
         'sender_id': senderId,
         'receiver_id': receiverId,
-        'message_text': messageText,
+        // Store the encrypted payload — never upload plaintext to Firestore.
+        'encrypted_payload': encryptedPayload,
         'timestamp': timestamp.millisecondsSinceEpoch,
         'delivery_status': 'synced',
         'hop_count': hopCount,
@@ -536,11 +539,12 @@ class MeshMessage {
         messageId: d['message_id'] as String? ?? '',
         senderId: d['sender_id'] as String? ?? '',
         receiverId: d['receiver_id'] as String? ?? '',
-        messageText: d['message_text'] as String? ?? '',
+        messageText: '', // plaintext not stored in Firestore; decrypt locally
         timestamp: DateTime.fromMillisecondsSinceEpoch(
             (d['timestamp'] as int?) ?? 0),
         deliveryStatus: MeshDeliveryStatus.synced,
         hopCount: (d['hop_count'] as int?) ?? 0,
+        encryptedPayload: (d['encrypted_payload'] as String?) ?? '',
       );
 }
 

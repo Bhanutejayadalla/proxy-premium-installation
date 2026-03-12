@@ -23,7 +23,7 @@
 - **Mode-Specific Content**: Posts, followers, following, connections, and chats are all separated by mode
 
 ### 📡 Proximity Discovery
-- **BLE (Bluetooth) — Fully Offline**: Find people within ~30–50 meters using RSSI signal-strength filtering (threshold −80 dBm) — **no internet needed**
+- **BLE (Bluetooth) — Fully Offline**: Find people within ~30–50 meters using RSSI signal-strength filtering (threshold −90 dBm) — **no internet needed**
 - **GPS Mode — Online**: Discover users within a 10 km radius (outdoor events, campus-wide)
 - **BLE Advertising**: Your phone broadcasts your Proxi Premium ID via Bluetooth so others find you automatically
 - **Animated Radar UI**: Visual representation of nearby users with animated ripple effects
@@ -111,7 +111,7 @@ All Campus Hub features are accessible from the **Hub** icon (grid icon) in the 
 |---|---|
 | **BLE Scanning (Bluetooth radar)** | Bluetooth hardware scans for nearby devices — works fully offline with cached profiles |
 | **BLE Advertising** | Broadcasts your Proxi Premium UID via Bluetooth so others can discover you |
-| **Mesh Chat (send & receive)** | Full messaging via Google Nearby Connections — BLE advertising + discovery + data transfer, no internet at all |
+| **Mesh Chat (send & receive)** | Full messaging via Wi-Fi Direct (WifiP2pManager) + TCP sockets — BLE discovers peers, Wi-Fi Direct connects them, raw TCP carries messages |
 | **Mesh multi-hop relay** | Intermediate devices forward packets to out-of-range destinations (up to 5 hops) |
 | **Mesh SQLite storage** | All mesh messages persisted locally — readable offline after app restart |
 | **Mode Toggle** (Formal ↔ Casual) | Stored in memory — switches instantly |
@@ -146,10 +146,10 @@ All Campus Hub features are accessible from the **Hub** icon (grid icon) in the 
 | **Media Storage** | Cloudinary (images, videos, PDFs) |
 | **Push Notifications** | Firebase Cloud Messaging + local notifications |
 | **BLE Proximity Discovery** | flutter_blue_plus + native Kotlin BLE advertiser |
-| **Mesh Chat Transport** | nearby_connections 4.3.0 (Google Nearby Connections API) |
-| **Mesh Encryption** | encrypt 5.0.3 — AES-256-CBC, deterministic key per conversation |
+| **Mesh Chat Transport** | Native Android `WifiP2pManager` (Wi-Fi Direct) + raw TCP sockets on port 8888 — implemented in `WifiDirectPlugin.kt` via Flutter MethodChannel/EventChannel |
+| **Mesh Encryption** | encrypt 5.0.3 — AES-256-CBC, SHA-256 key derivation (crypto 3.0.3) per conversation pair |
 | **Mesh Local Storage** | sqflite 2.3.0 — SQLite database (mesh_messages.db) |
-| **Mesh Cloud Sync** | connectivity_plus 6.0.3 + Firestore (mesh_messages collection) |
+| **Mesh Cloud Sync** | connectivity_plus 6.0.3 + Firestore (`mesh_messages` collection — stores encrypted payload, never plaintext) |
 | **GPS/Maps** | geolocator + flutter_map (OpenStreetMap) + OSRM routing |
 | **Video** | video_player, video_compress, camera |
 | **IDE** | VS Code / Android Studio |
@@ -181,66 +181,82 @@ All Campus Hub features are accessible from the **Hub** icon (grid icon) in the 
 
 ---
 
-## � Mesh Network — Deep Dive
+## 🔵 Mesh Network — Deep Dive
 
 ### What is it?
-The Mesh Chat system lets two or more Proxi devices communicate **entirely without Wi-Fi or mobile data** using Bluetooth Low Energy. It is implemented in `v3.1` on top of **Google's Nearby Connections API**, which handles BLE advertising, BLE discovery, and reliable byte-stream connections in a single library.
+The Mesh Chat system lets two or more Proxi devices communicate **entirely without mobile data** using Bluetooth Low Energy (for peer discovery) and **Wi-Fi Direct** (for data transfer). The implementation uses Android's native `WifiP2pManager` API — no third-party networking library is involved.
 
 ---
 
-### Transport Layer: Google Nearby Connections
+### Architecture: BLE Discovery → Wi-Fi Direct → TCP Sockets
 
-| Aspect | Detail |
-|---|---|
-| **Library** | `nearby_connections: 4.3.0` (pub.dev) — wraps the Google Play Services Nearby Connections Java SDK |
-| **Strategy** | `Strategy.P2P_CLUSTER` — star-free multi-device mesh, every device can talk to every other device |
-| **Discovery medium** | Bluetooth Low Energy (BLE) advertisements — ~30–50 m range outdoors, ~15 m indoors |
-| **Data channel** | Bluetooth Classic (RFCOMM) or Wi-Fi Direct, automatically negotiated by the SDK for highest bandwidth |
-| **Service ID** | `com.proxi.mesh.v1` — all Proxi devices use the same ID so they only connect to each other |
-| **Device nickname** | Each device advertises its Firebase UID as the `userNickName` so peers can identify who is who |
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Proxi Mesh Stack                        │
+├─────────────────────────────────────────────────────────────┤
+│  Flutter (Dart)                                             │
+│  ├── BleService (flutter_blue_plus)   ← BLE scanning        │
+│  ├── MeshService                      ← orchestrator        │
+│  │    └── WifiDirectService           ← Dart channel wrapper│
+│  └── MeshEncryptionService            ← AES-256 + SHA-256   │
+├─────────────────────────────────────────────────────────────┤
+│  Platform Channel (MethodChannel + EventChannel)            │
+│      com.proxi.wifi_direct / com.proxi.wifi_direct/events   │
+├─────────────────────────────────────────────────────────────┤
+│  Native Kotlin  (WifiDirectPlugin.kt)                       │
+│  ├── WifiP2pManager.discoverPeers()   ← Wi-Fi Direct scan   │
+│  ├── WifiP2pManager.connect()         ← P2P group formation │
+│  ├── ServerSocket(8888)               ← Group Owner side     │
+│  └── Socket → InetSocketAddress(8888) ← Non-GO side         │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ### Full Connection Lifecycle
 
 ```
-Device A (Advertiser & Discoverer)         Device B (Advertiser & Discoverer)
-        │                                          │
-        │── startAdvertising(uid_A) ──────────────►│  (BLE advertisement broadcast)
-        │◄── startDiscovery() ────────────────────►│  (both scan simultaneously)
-        │                                          │
-        │◄── onEndpointFound(uid_B) ───────────────│  (A discovers B)
-        │── requestConnection(uid_B) ─────────────►│
-        │◄── onConnectionInitiated() ─────────────►│  (both devices notified)
-        │── acceptConnection() ────────────────────►│
-        │◄── acceptConnection() ───────────────────│
-        │                                          │
-        │◄══ onConnectionResult(CONNECTED) ════════│  (handshake complete)
-        │                                          │
-        │══ sendBytesPayload(json_packet) ═════════►│  (message delivery)
-        │◄══ sendBytesPayload(json_packet) ════════│  (reply)
+Device A (Initiator)                        Device B (Peer)
+     │                                          │
+     │── BLE advertisement (uid, username) ────►│  (flutter_blue_plus)
+     │◄── BLE advertisement ────────────────────│
+     │                                          │
+     │  [MeshService.onBleDeviceDiscovered()]   │
+     │── WifiP2pManager.discoverPeers() ────────►│
+     │◄── WIFI_P2P_PEERS_CHANGED_ACTION ─────────│
+     │                                          │
+     │── WifiP2pManager.connect(deviceAddress) ─►│
+     │◄═══ WIFI_P2P_CONNECTION_CHANGED_ACTION ═══│  (group formed)
+     │     ↳ GO side    → startSocketServer()   │
+     │     ↳ Non-GO side→ startSocketClient()   │
+     │                                          │
+     │◄══ TCP Socket connection on port 8888 ════│
+     │── JSON handshake {type:"handshake",uid} ──►│
+     │◄── JSON handshake {type:"handshake",uid} ──│
+     │                                          │
+     │══ MeshWirePacket (JSON, AES-256 payload) ═►│  (message)
 ```
 
 ---
 
 ### Message Packet Format (`MeshWirePacket`)
 
-Every message is serialized to JSON before transmission:
+Every message is serialized to newline-delimited JSON over the TCP socket:
 
 ```json
 {
-  "messageId":        "uuid-v4",
-  "senderId":         "firebase_uid_of_sender",
-  "receiverId":       "firebase_uid_of_recipient",
-  "encryptedPayload": "<iv_base64>.<ciphertext_base64>",
-  "timestamp":        1741420800000,
-  "hopCount":         0
+  "mid": "uuid-v4",
+  "sid": "firebase_uid_of_sender",
+  "rid": "firebase_uid_of_recipient",
+  "pay": "<iv_base64>.<ciphertext_base64>",
+  "ts":  1741420800000,
+  "hop": 0
 }
 ```
 
-- `encryptedPayload` is the AES-256-CBC ciphertext of the original message text
-- `hopCount` increments by 1 at each relay hop; packets are discarded when `hopCount ≥ 5`
-- The JSON is UTF-8 encoded to `Uint8List` and sent via `Nearby().sendBytesPayload()`
+- `pay` is the AES-256-CBC ciphertext of the original message text
+- `hop` increments by 1 at each relay node; packets are dropped when `hop ≥ 5`
+- A handshake JSON (`type:"handshake", uid:…`) is exchanged first to map Wi-Fi Direct MAC addresses to Firebase UIDs
 
 ---
 
@@ -249,37 +265,38 @@ Every message is serialized to JSON before transmission:
 | Property | Value |
 |---|---|
 | **Algorithm** | AES-256-CBC |
-| **Key derivation** | SHA-256 of `sorted(senderUid + receiverUid)` — deterministic, no key exchange needed |
-| **IV** | 16 random bytes, freshly generated per message, prepended to ciphertext as `<iv_b64>.<cipher_b64>` |
-| **Library** | `encrypt: 5.0.3` + `pointycastle: 3.9.1` |
-| **Why deterministic key?** | Both ends can independently compute the same key from UIDs they already know — no PKI or handshake required |
+| **Key derivation** | Real SHA-256 (`package:crypto`) of `sorted(senderUid + receiverUid) + ":proxi-mesh-v1"` |
+| **IV** | 16 cryptographically random bytes per message, prepended as `<iv_b64>.<cipher_b64>` |
+| **Library** | `encrypt: 5.0.3` + `crypto: 3.0.3` |
+| **Cloud storage** | Only `encrypted_payload` is synced to Firestore — plaintext is never uploaded |
 
 **Encrypt flow:**
 ```
-plaintext ──► AES-256-CBC(key=SHA256(sortedUids), iv=random16) ──► "<iv_b64>.<cipher_b64>"
+plaintext ──► AES-256-CBC(key=SHA256(sortedUids+salt), iv=random16) ──► "<iv_b64>.<cipher_b64>"
 ```
 
 **Decrypt flow:**
 ```
-"<iv_b64>.<cipher_b64>" ──► split ──► AES-256-CBC-decrypt(key=SHA256(sortedUids)) ──► plaintext
+"<iv_b64>.<cipher_b64>" ──► split ──► AES-256-CBC-decrypt(key=SHA256(sortedUids+salt)) ──► plaintext
 ```
 
 ---
 
 ### Multi-Hop Relay Logic
 
-When device A wants to reach device C but they are out of BLE range, device B (in range of both) acts as a relay:
+When device A wants to reach device C but they are out of Wi-Fi Direct range, device B (in range of both) acts as a relay:
 
 ```
- A ──BLE──► B ──BLE──► C
-           (relay)
+ A ──WiFi Direct──► B ──WiFi Direct──► C
+                  (relay)
 ```
 
-1. A sends packet to B (`hopCount = 0`)
-2. B calls `onPacketReceived(packet)` — sees `receiverId ≠ myUid`
-3. B increments `hopCount` to 1 and calls `sendBytesPayload()` to C if connected, otherwise stores in SQLite as `MeshDeliveryStatus.relayed`
-4. C decrypts and stores the message; `hopCount` must be `< 5` or the packet is dropped
-5. When B comes online, pending relay messages are forwarded from SQLite
+1. A sends packet to B (`hop = 0`)
+2. B sees `receiverId ≠ myUid` — increments `hop` to 1, forwards to all peers except the sender
+3. C decrypts and delivers the message; `hop ≥ 5` → packet dropped
+4. If B cannot forward, it stores the relay-packet in SQLite and delivers when a new peer connects
+
+**Deduplication:** A `Set<String>` + FIFO `Queue<String>` (capped at 500 entries) prevents each device from processing the same packet more than once.
 
 ---
 
@@ -296,7 +313,7 @@ When device A wants to reach device C but they are out of BLE range, device B (i
 | `message_text` | TEXT | Decrypted plaintext (empty for relay-only records) |
 | `timestamp` | INTEGER | Unix epoch milliseconds |
 | `delivery_status` | TEXT | `pending` / `relayed` / `delivered` / `synced` |
-| `hop_count` | INTEGER | How many relays have forwarded this packet |
+| `hop_count` | INTEGER | How many relay nodes have forwarded this packet |
 | `encrypted_payload` | TEXT | Wire-safe ciphertext (`<iv>.<cipher>`) |
 
 **Indexes:**  
@@ -316,8 +333,9 @@ Offline  ──► [messages stored in SQLite with status=pending/delivered] ─
                                               ▼
                               _uploadUnsynced() — batch Firestore set()
                                     to mesh_messages/{messageId}
+                                    (stores encrypted_payload only, never plaintext)
                               _downloadMissing() — query Firestore
-                                    where receiver_id == myUid
+                                    where receiver_id == myUid (limit 100)
 ```
 
 **Firestore collection:** `mesh_messages/{messageId}`  
@@ -329,13 +347,14 @@ Offline  ──► [messages stored in SQLite with status=pending/delivered] ─
 
 | Permission | API Level | Purpose |
 |---|---|---|
-| `BLUETOOTH_SCAN` + `neverForLocation` | 31+ | BLE scanning without requiring Location Services to be on |
+| `BLUETOOTH_SCAN` | 31+ | BLE scanning |
 | `BLUETOOTH_ADVERTISE` | 31+ | BLE advertising so other devices can find us |
 | `BLUETOOTH_CONNECT` | 31+ | GATT connections |
 | `BLUETOOTH` + `BLUETOOTH_ADMIN` | ≤ 30 | Legacy BLE APIs |
 | `ACCESS_FINE_LOCATION` | all | Required for BLE on Android ≤ 11 |
-| `ACCESS_WIFI_STATE` + `CHANGE_WIFI_STATE` | all | Nearby Connections Wi-Fi Direct fallback |
-| `NEARBY_WIFI_DEVICES` + `neverForLocation` | 33+ | Android 13+ Wi-Fi Direct scanning |
+| `ACCESS_WIFI_STATE` + `CHANGE_WIFI_STATE` | all | Wi-Fi Direct peer discovery and group management |
+| `CHANGE_NETWORK_STATE` | all | Wi-Fi Direct group removal |
+| `NEARBY_WIFI_DEVICES` | 33+ | Android 13+ Wi-Fi Direct scanning |
 
 ---
 
@@ -343,11 +362,13 @@ Offline  ──► [messages stored in SQLite with status=pending/delivered] ─
 
 | File | Role |
 |---|---|
-| `lib/services/mesh_service.dart` | Core engine — Nearby Connections advertising, discovery, connection lifecycle, send/receive/relay |
+| `android/…/WifiDirectPlugin.kt` | Native Wi-Fi Direct engine — `WifiP2pManager`, `BroadcastReceiver`, `ServerSocket`/`Socket`, `ConcurrentHashMap` socket streams |
+| `lib/services/wifi_direct_service.dart` | Flutter Dart wrapper over platform channel `com.proxi.wifi_direct` |
+| `lib/services/mesh_service.dart` | Core orchestrator — BLE→WiFi trigger, handshake protocol, send/receive/relay, FIFO dedup |
 | `lib/services/mesh_db_service.dart` | SQLite singleton — full CRUD for offline message store |
-| `lib/services/mesh_encryption_service.dart` | AES-256-CBC encrypt/decrypt + `MeshWirePacket` serialization |
-| `lib/services/mesh_sync_service.dart` | Connectivity watcher — uploads unsynced messages and downloads missed ones on reconnect |
-| `lib/screens/mesh_chat_screen.dart` | Full chat UI — Mesh toggle switch, peer count badge, status banner, per-message delivery icons |
+| `lib/services/mesh_encryption_service.dart` | AES-256-CBC encrypt/decrypt + real SHA-256 key derivation + `MeshWirePacket` serialization |
+| `lib/services/mesh_sync_service.dart` | Connectivity watcher — uploads encrypted payload, downloads missed messages on reconnect |
+| `lib/screens/mesh_chat_screen.dart` | Full chat UI — Mesh toggle, BLE/WiFi/socket/peer count banner, delivery status icons |
 | `lib/models.dart` | `MeshMessage` model + `MeshDeliveryStatus` enum |
 | `lib/app_state.dart` | Wires `MeshService` and `MeshSyncService` into the global provider; starts/stops with auth lifecycle |
 
@@ -355,17 +376,19 @@ Offline  ──► [messages stored in SQLite with status=pending/delivered] ─
 
 ### How to Test on Two Physical Devices
 
+> **Wi-Fi Direct does NOT work on Android emulators. Two physical Android phones are required.**
+
 1. Install the APK on **both** devices
 2. Sign in with different accounts on each
-3. Place devices within **1–2 metres** of each other (initial pairing works best close-range)
-4. On Device A: open any chat (DM or group) → tap the **🔵 Bluetooth icon** in the top-right corner
-5. The Mesh toggle is now ON — the banner changes to **"1 nearby device in mesh range"** within 5–10 seconds
+3. Enable **Bluetooth**, **Wi-Fi**, and **Location** on both; place them within **1–2 metres** of each other
+4. On Device A: open any chat → tap the **🔵 Bluetooth icon** to toggle Mesh ON
+5. The status banner progresses: `Scanning… → BLE found N → WiFi connecting… → Connected (N socket)`
 6. Do the same on Device B
 7. Send a message — it arrives on Device B **instantly with no internet**
-8. Delivery status shows **✓ Delivered** when the other device receives it
-9. When either device reconnects to the internet, the **☁ Synced** status appears
+8. Delivery status: **🕐 Pending → ↔ Relayed → ✓ Delivered → ☁ Synced**
+9. Check `logcat` for `[MeshService]` and `WifiDirectPlugin` tags to trace the pipeline
 
-> **Tip:** Both devices must have Bluetooth ON and Location permission granted. On Android 12+ the app auto-requests all required permissions when Mesh is toggled ON.
+> **Tip:** Both devices must have Bluetooth ON, Wi-Fi ON, and Location permission granted. Multiple devices can connect simultaneously — Multi-peer is fully supported.
 
 ---
 
@@ -394,7 +417,7 @@ proxi-premium/
 │   │   ├── services/
 │   │   │   ├── cloudinary_service.dart      # Media uploads
 │   │   │   ├── ble_advertiser_service.dart  # Legacy BLE advertising bridge
-│   │   │   ├── mesh_service.dart            # Nearby Connections mesh engine
+│   │   │   ├── mesh_service.dart            # Wi-Fi Direct + BLE orchestrator (mesh)
 │   │   │   ├── mesh_db_service.dart         # SQLite offline message store
 │   │   │   ├── mesh_encryption_service.dart # AES-256-CBC + MeshWirePacket
 │   │   │   ├── mesh_sync_service.dart       # Firebase sync on reconnect
@@ -407,8 +430,9 @@ proxi-premium/
 │   │       ├── build.gradle.kts   # Package: com.proxi.premium
 │   │       ├── google-services.json
 │   │       └── src/main/kotlin/com/proxi/premium/
-│   │           └── MainActivity.kt  # Native BLE advertiser
-│   └── pubspec.yaml                # Deps incl. nearby_connections, sqflite, encrypt
+│   │           ├── MainActivity.kt      # Native BLE advertiser (runOnUiThread wrappers)
+│   │           └── WifiDirectPlugin.kt  # Native Wi-Fi Direct engine (WifiP2pManager + TCP)
+│   └── pubspec.yaml                # Deps incl. sqflite, encrypt, crypto, flutter_blue_plus
 │
 ├── functions/                  # Firebase Cloud Functions (Node.js)
 │   ├── index.js
@@ -481,7 +505,7 @@ This repo uses its own Firebase project and Cloudinary account. To fork and run 
 | Version | Date | Highlights |
 |---|---|---|
 | **3.0.1 Premium** | July 2025 | Fixed Skill Exchange, Community Posts, Events filtering, Resource filtering (missing Firestore indexes); full feature audit |
-| **3.1 Premium** | March 2026 | Mesh Chat (offline P2P via Google Nearby Connections, AES-256-CBC encryption, SQLite store, multi-hop relay, Firebase sync) · Improved typing bar UX |
+| **3.1 Premium** | March 2026 | Mesh Chat (offline P2P via native WifiP2pManager / Wi-Fi Direct + TCP sockets, AES-256-CBC + SHA-256 encryption, SQLite store, multi-hop relay, Firebase sync — encrypted payload only) · Improved typing bar UX |
 | **3.0 Premium** | March 2026 | Campus Hub, rebranded as Proxi Premium, BLE fixes |
 | **3.0** | March 2026 | Campus Hub (search, projects, communities, events, maps) |
 | **2.1** | February 2026 | Offline BLE mode, user cache, BLE advertising |

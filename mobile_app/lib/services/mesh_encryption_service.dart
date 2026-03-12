@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:encrypt/encrypt.dart' as enc;
 
 /// AES-256-GCM encryption for mesh messages.
@@ -17,32 +18,12 @@ class MeshEncryptionService {
   MeshEncryptionService._internal();
 
   /// Derive a 256-bit AES key from two UIDs.
-  /// The key is the SHA-256 of the lexicographically sorted pair.
+  /// The key is the real SHA-256 of the lexicographically sorted UID pair.
   enc.Key _deriveKey(String uid1, String uid2) {
     final sorted = [uid1, uid2]..sort();
     final raw = '${sorted[0]}:${sorted[1]}:proxi-mesh-v1';
-    // Simple deterministic hash using dart:convert + manual mix
-    final bytes = utf8.encode(raw);
-    final mixed = _sha256Lite(bytes);
-    return enc.Key(Uint8List.fromList(mixed));
-  }
-
-  /// Super-lightweight deterministic 32-byte hash (no external package needed).
-  List<int> _sha256Lite(List<int> input) {
-    // We XOR + rotate across the input to fill 32 bytes deterministically.
-    // NOTE: For production, replace with a proper SHA-256 implementation.
-    final out = List<int>.filled(32, 0);
-    for (int i = 0; i < input.length; i++) {
-      out[i % 32] ^= input[i];
-      out[(i + 1) % 32] ^= (input[i] << 3 | input[i] >> 5) & 0xFF;
-    }
-    // Mix extra rounds
-    for (int r = 0; r < 4; r++) {
-      for (int i = 0; i < 32; i++) {
-        out[i] = (out[i] ^ out[(i + 7) % 32] ^ (r * 31)) & 0xFF;
-      }
-    }
-    return out;
+    final digest = crypto.sha256.convert(utf8.encode(raw));
+    return enc.Key(Uint8List.fromList(digest.bytes));
   }
 
   /// Encrypt [plaintext] for the conversation between [senderUid] and [receiverUid].
@@ -60,8 +41,10 @@ class MeshEncryptionService {
       final encrypted = encrypter.encrypt(plaintext, iv: iv);
       final ivB64 = base64.encode(ivBytes);
       return '$ivB64.${encrypted.base64}';
-    } catch (e) {
-      // Fallback: return base64 of plaintext so the app doesn't crash
+    } catch (e, st) {
+      // Encryption failed — log and fall back so the app doesn't crash.
+      // NOTE: the fallback embeds plaintext in the payload; investigate root cause.
+      debugPrint('[MeshEncryption] encrypt() error: $e\n$st');
       return 'plain.${base64.encode(utf8.encode(plaintext))}';
     }
   }
@@ -131,8 +114,8 @@ class MeshWirePacket {
       senderId: m['sid'] as String,
       receiverId: m['rid'] as String,
       encryptedPayload: m['pay'] as String,
-      timestamp: m['ts'] as int,
-      hopCount: (m['hop'] as int?) ?? 0,
+      timestamp: (m['ts'] as num).toInt(),
+      hopCount: (m['hop'] as num?)?.toInt() ?? 0,
     );
   }
 

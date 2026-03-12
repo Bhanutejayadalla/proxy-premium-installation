@@ -112,6 +112,7 @@ class MeshSyncService {
         .collection('mesh_messages')
         .where('receiver_id', isEqualTo: myUid)
         .orderBy('timestamp', descending: false)
+        .limit(100)
         .get();
 
     int inserted = 0;

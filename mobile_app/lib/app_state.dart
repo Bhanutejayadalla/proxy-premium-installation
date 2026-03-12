@@ -47,6 +47,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _receivedRequestsSub;
   StreamSubscription? _profileSub; // Real-time profile listener
   StreamSubscription? _notifSub; // Real-time push notification listener
+  StreamSubscription? _bleMeshSub; // BLE → mesh pipeline subscription
   final NotificationService _notifService = NotificationService();
   bool _notifInitialSnapshotSkipped = false; // Skip first snapshot to avoid old notifs
   List<String> _connectedUids = []; // UIDs of accepted connections
@@ -61,6 +62,10 @@ class AppState extends ChangeNotifier {
         if (profile != null) {
           currentUser = profile;
           _startListeners();
+          // Restore session services that login() also triggers
+          _registerFcmToken();
+          startBleAdvertising();
+          syncUserCacheFromFirestore();
         }
       } else {
         currentUser = null;
@@ -204,6 +209,15 @@ class AppState extends ChangeNotifier {
     if (currentUser != null) {
       meshService.init(currentUser!.uid);
       _meshSync.startWatching(currentUser!.uid);
+
+      // Wire BLE discovery into mesh service so Wi-Fi Direct connects
+      // when nearby Proxi users are detected via BLE.
+      _bleMeshSub?.cancel();
+      _bleMeshSub = ble.discoveredUsersStream.listen((discovered) {
+        for (final user in discovered.values) {
+          meshService.onBleDeviceDiscovered(user);
+        }
+      });
     }
 
     // Track accepted connections — needed for visibility filtering
@@ -364,6 +378,8 @@ class AppState extends ChangeNotifier {
     _receivedRequestsSub?.cancel();
     _profileSub?.cancel();
     _notifSub?.cancel();
+    _bleMeshSub?.cancel();
+    _bleMeshSub = null;
     // Stop mesh scanning and Firebase sync watcher
     meshService.stop();
     _meshSync.stopWatching();
