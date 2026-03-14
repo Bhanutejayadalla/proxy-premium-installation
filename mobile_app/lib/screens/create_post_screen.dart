@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../constants.dart';
+import '../models.dart';
 
 class CreatePostScreen extends StatefulWidget {
   final bool initialIsStory;
@@ -17,6 +18,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   File? _file;
   late bool isStory;
   bool _isPosting = false;
+  String _postVisibility = 'public';
+  final Set<String> _selectedVisibleUids = {};
 
   @override
   void initState() {
@@ -35,7 +38,15 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     setState(() => _isPosting = true);
     try {
       await Provider.of<AppState>(context, listen: false)
-          .createPost(_text.text, _file, isStory);
+          .createPost(
+          _text.text,
+          _file,
+          isStory,
+          visibility: _postVisibility,
+          visibleToUids: _postVisibility == 'selected_connections'
+            ? _selectedVisibleUids.toList()
+            : const [],
+          );
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
@@ -45,6 +56,79 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       }
     }
     if (mounted) setState(() => _isPosting = false);
+  }
+
+  Future<void> _pickVisibleConnections(AppState state) async {
+    final users = await Future.wait(
+      state.connectedUids.map((uid) => state.firebase.getUser(uid)),
+    );
+    final connected = users.whereType<AppUser>().toList()
+      ..sort((a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()));
+
+    if (!mounted) return;
+    final selected = Set<String>.from(_selectedVisibleUids);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Choose connections'),
+          content: SizedBox(
+            width: 360,
+            height: 420,
+            child: connected.isEmpty
+                ? const Center(
+                    child: Text('No connections yet',
+                        style: TextStyle(color: Colors.grey)),
+                  )
+                : ListView.builder(
+                    itemCount: connected.length,
+                    itemBuilder: (_, i) {
+                      final u = connected[i];
+                      final checked = selected.contains(u.uid);
+                      return CheckboxListTile(
+                        value: checked,
+                        onChanged: (v) {
+                          setLocal(() {
+                            if (v == true) {
+                              selected.add(u.uid);
+                            } else {
+                              selected.remove(u.uid);
+                            }
+                          });
+                        },
+                        title: Text(u.username),
+                        subtitle: Text(u.fullName.isEmpty ? u.uid : u.fullName),
+                        secondary: CircleAvatar(
+                          backgroundImage: u.getAvatar(state.isFormal).isNotEmpty
+                              ? NetworkImage(u.getAvatar(state.isFormal))
+                              : null,
+                          child: u.getAvatar(state.isFormal).isEmpty
+                              ? Text(u.username.isNotEmpty
+                                  ? u.username[0].toUpperCase()
+                                  : '?')
+                              : null,
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _selectedVisibleUids
+                    ..clear()
+                    ..addAll(selected);
+                });
+                Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -110,6 +194,66 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         onSelected: (v) => setState(() => isStory = true),
                       ),
                     ]),
+                    const SizedBox(height: 14),
+                    if (!isStory)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Who can see this post?',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              ChoiceChip(
+                                label: const Text('Public'),
+                                selected: _postVisibility == 'public',
+                                onSelected: (_) => setState(() {
+                                  _postVisibility = 'public';
+                                  _selectedVisibleUids.clear();
+                                }),
+                              ),
+                              ChoiceChip(
+                                label: const Text('Connections'),
+                                selected: _postVisibility == 'connections',
+                                onSelected: (_) => setState(() {
+                                  _postVisibility = 'connections';
+                                  _selectedVisibleUids.clear();
+                                }),
+                              ),
+                              ChoiceChip(
+                                label: const Text('Selected connections'),
+                                selected:
+                                    _postVisibility == 'selected_connections',
+                                onSelected: (_) async {
+                                  setState(() => _postVisibility =
+                                      'selected_connections');
+                                  await _pickVisibleConnections(state);
+                                },
+                              ),
+                            ],
+                          ),
+                          if (_postVisibility == 'selected_connections')
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Row(
+                                children: [
+                                  Text(
+                                      '${_selectedVisibleUids.length} selected',
+                                      style: const TextStyle(
+                                          color: Colors.grey, fontSize: 12)),
+                                  const SizedBox(width: 8),
+                                  TextButton(
+                                    onPressed: () =>
+                                        _pickVisibleConnections(state),
+                                    child: const Text('Choose people'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
                     const SizedBox(height: 20),
                     TextField(
                       controller: _text,

@@ -98,52 +98,62 @@ class _HomeShellState extends State<HomeShell> {
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
-                    Icon(LucideIcons.radio, color: color),
-                    const SizedBox(width: 8),
-                    Text("Proxi",
-                        style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                            color: color)),
-                    const SizedBox(width: 10),
-
-                    // MODE TOGGLE CHIP — replaces FAB so it no longer blocks Profile tab
-                    GestureDetector(
-                      onTap: state.toggleMode,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: color, width: 1.5),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              state.isFormal
-                                  ? LucideIcons.briefcase
-                                  : LucideIcons.partyPopper,
-                              size: 14,
-                              color: color,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              state.isFormal ? "PRO" : "SOCIAL",
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(LucideIcons.radio, color: color),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              "Proxi Premium",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
                                 color: color,
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 8),
+                          // MODE TOGGLE CHIP — replaces FAB so it no longer blocks Profile tab
+                          GestureDetector(
+                            onTap: state.toggleMode,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: color, width: 1.5),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    state.isFormal
+                                        ? LucideIcons.briefcase
+                                        : LucideIcons.partyPopper,
+                                    size: 14,
+                                    color: color,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    state.isFormal ? "PRO" : "SOCIAL",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: color,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-
-                    const Spacer(),
 
                     IconButton(
                       icon: const Icon(LucideIcons.layoutGrid),

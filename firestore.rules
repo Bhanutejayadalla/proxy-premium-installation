@@ -64,7 +64,11 @@ service cloud.firestore {
       allow read, create, update, delete: if isSignedIn();
 
       match /messages/{messageId} {
-        allow read, create, delete: if isSignedIn();
+        allow read, create, update, delete: if isSignedIn();
+      }
+
+      match /typing/{uid} {
+        allow read, create, update, delete: if isSignedIn();
       }
     }
 
@@ -89,7 +93,11 @@ service cloud.firestore {
                     && resource.data.creator == request.auth.uid;
 
       match /messages/{messageId} {
-        allow read, create, delete: if isSignedIn();
+        allow read, create, update, delete: if isSignedIn();
+      }
+
+      match /typing/{uid} {
+        allow read, create, update, delete: if isSignedIn();
       }
     }
 

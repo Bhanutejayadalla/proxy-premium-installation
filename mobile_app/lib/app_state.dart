@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' show min;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/auth_service.dart';
@@ -329,6 +330,9 @@ class AppState extends ChangeNotifier {
     if (post.authorId == currentUser!.uid) return true; // own content
     final vis = post.visibility;
     if (vis == 'private') return false;
+    if (vis == 'selected_connections') {
+      return post.visibleToUids.contains(currentUser!.uid);
+    }
     if (vis == 'connections') return _connectedUids.contains(post.authorId);
     return true; // public or unset
   }
@@ -340,6 +344,10 @@ class AppState extends ChangeNotifier {
     if (authorId == currentUser!.uid) return true;
     final vis = story['visibility'] ?? 'public';
     if (vis == 'private') return false;
+    if (vis == 'selected_connections') {
+      final allowed = List<String>.from(story['visible_to_uids'] ?? const []);
+      return allowed.contains(currentUser!.uid);
+    }
     if (vis == 'connections') return _connectedUids.contains(authorId);
     return true;
   }
@@ -386,7 +394,13 @@ class AppState extends ChangeNotifier {
   //  POST OPERATIONS
   // ─────────────────────────────────────────────
 
-  Future<void> createPost(String text, File? file, bool isStory) async {
+  Future<void> createPost(
+    String text,
+    File? file,
+    bool isStory, {
+    String? visibility,
+    List<String> visibleToUids = const [],
+  }) async {
     if (currentUser == null) return;
     String? mediaUrl;
     if (file != null) {
@@ -402,7 +416,8 @@ class AppState extends ChangeNotifier {
       mode: currentMode,
       type: isStory ? 'story' : 'post',
       mediaUrl: mediaUrl,
-      visibility: currentUser!.visibility,
+      visibility: visibility ?? currentUser!.visibility,
+      visibleToUids: visibleToUids,
     );
   }
 
@@ -421,6 +436,26 @@ class AppState extends ChangeNotifier {
       mediaUrl: mediaUrl,
       visibility: currentUser!.visibility,
     );
+  }
+
+  Future<void> setMoodStatus(String status, Duration duration) async {
+    if (currentUser == null) return;
+    await firebase.updateProfile(currentUser!.uid, {
+      'mood_status': status,
+      'mood_expires_at': Timestamp.fromDate(DateTime.now().add(duration)),
+    });
+    currentUser = await firebase.getUser(currentUser!.uid);
+    notifyListeners();
+  }
+
+  Future<void> clearMoodStatus() async {
+    if (currentUser == null) return;
+    await firebase.updateProfile(currentUser!.uid, {
+      'mood_status': '',
+      'mood_expires_at': null,
+    });
+    currentUser = await firebase.getUser(currentUser!.uid);
+    notifyListeners();
   }
 
   Future<void> recordReelView(String reelId) async {
@@ -866,6 +901,14 @@ class AppState extends ChangeNotifier {
     return firebase.getChatStream(chatId);
   }
 
+  Stream<Map<String, dynamic>?> getChatMeta(String chatId) {
+    return firebase.getChatMetaStream(chatId);
+  }
+
+  Stream<List<Map<String, dynamic>>> getChatTyping(String chatId) {
+    return firebase.getChatTypingStream(chatId);
+  }
+
   Stream<List<Map<String, dynamic>>> get conversationsStream {
     if (currentUser == null) return const Stream.empty();
     return firebase.getConversationsStream(currentUser!.uid, mode: currentMode);
@@ -877,6 +920,8 @@ class AppState extends ChangeNotifier {
     String? text,
     String? fileUrl,
     String? fileType,
+    String? replyToId,
+    String? replyPreview,
   }) async {
     if (currentUser == null) return;
     await firebase.sendMessage(
@@ -887,7 +932,64 @@ class AppState extends ChangeNotifier {
       text: text,
       fileUrl: fileUrl,
       fileType: fileType,
+      replyToId: replyToId,
+      replyPreview: replyPreview,
       mode: currentMode,
+    );
+  }
+
+  Future<void> setChatTyping(String chatId, bool isTyping) async {
+    if (currentUser == null) return;
+    await firebase.setChatTyping(
+      chatId: chatId,
+      uid: currentUser!.uid,
+      isTyping: isTyping,
+    );
+  }
+
+  Future<void> markChatSeen(String chatId) async {
+    if (currentUser == null) return;
+    await firebase.markChatSeen(chatId: chatId, uid: currentUser!.uid);
+  }
+
+  Future<void> editChatMessage(
+      String chatId, String messageId, String newText) async {
+    await firebase.editChatMessage(
+      chatId: chatId,
+      messageId: messageId,
+      newText: newText,
+    );
+  }
+
+  Future<void> toggleChatReaction({
+    required String chatId,
+    required String messageId,
+    required String emoji,
+    required bool add,
+  }) async {
+    if (currentUser == null) return;
+    await firebase.toggleChatReaction(
+      chatId: chatId,
+      messageId: messageId,
+      emoji: emoji,
+      uid: currentUser!.uid,
+      add: add,
+    );
+  }
+
+  Future<void> deleteChatMessageForMe(String chatId, String messageId) async {
+    if (currentUser == null) return;
+    await firebase.deleteChatMessageForMe(
+      chatId: chatId,
+      messageId: messageId,
+      uid: currentUser!.uid,
+    );
+  }
+
+  Future<void> deleteChatMessageForEveryone(String chatId, String messageId) async {
+    await firebase.deleteChatMessageForEveryone(
+      chatId: chatId,
+      messageId: messageId,
     );
   }
 
@@ -929,11 +1031,21 @@ class AppState extends ChangeNotifier {
     return firebase.getGroupChatStream(groupId);
   }
 
+  Stream<Map<String, dynamic>?> getGroupMeta(String groupId) {
+    return firebase.getGroupMetaStream(groupId);
+  }
+
+  Stream<List<Map<String, dynamic>>> getGroupTyping(String groupId) {
+    return firebase.getGroupTypingStream(groupId);
+  }
+
   Future<void> sendGroupMessage({
     required String groupId,
     String? text,
     String? fileUrl,
     String? fileType,
+    String? replyToId,
+    String? replyPreview,
   }) async {
     if (currentUser == null) return;
     await firebase.sendGroupMessage(
@@ -943,7 +1055,80 @@ class AppState extends ChangeNotifier {
       text: text,
       fileUrl: fileUrl,
       fileType: fileType,
+      replyToId: replyToId,
+      replyPreview: replyPreview,
     );
+  }
+
+  Future<void> setGroupTyping(String groupId, bool isTyping) async {
+    if (currentUser == null) return;
+    await firebase.setGroupTyping(
+      groupId: groupId,
+      uid: currentUser!.uid,
+      isTyping: isTyping,
+    );
+  }
+
+  Future<void> editGroupMessage(
+      String groupId, String messageId, String newText) async {
+    await firebase.editGroupMessage(
+      groupId: groupId,
+      messageId: messageId,
+      newText: newText,
+    );
+  }
+
+  Future<void> toggleGroupReaction({
+    required String groupId,
+    required String messageId,
+    required String emoji,
+    required bool add,
+  }) async {
+    if (currentUser == null) return;
+    await firebase.toggleGroupReaction(
+      groupId: groupId,
+      messageId: messageId,
+      emoji: emoji,
+      uid: currentUser!.uid,
+      add: add,
+    );
+  }
+
+  Future<void> deleteGroupMessageForMe(String groupId, String messageId) async {
+    if (currentUser == null) return;
+    await firebase.deleteGroupMessageForMe(
+      groupId: groupId,
+      messageId: messageId,
+      uid: currentUser!.uid,
+    );
+  }
+
+  Future<void> deleteGroupMessageForEveryone(String groupId, String messageId) async {
+    await firebase.deleteGroupMessageForEveryone(
+      groupId: groupId,
+      messageId: messageId,
+    );
+  }
+
+  Future<void> pinGroupMessage(String groupId, String messageId) async {
+    if (currentUser == null) return;
+    await firebase.pinGroupMessage(
+      groupId: groupId,
+      messageId: messageId,
+      pinnedBy: currentUser!.uid,
+    );
+  }
+
+  Future<void> unpinGroupMessage(String groupId) async {
+    await firebase.unpinGroupMessage(groupId);
+  }
+
+  Future<void> setGroupRole({
+    required String groupId,
+    required String uid,
+    required String role,
+  }) async {
+    await firebase.setGroupRole(groupId: groupId, uid: uid, role: role);
   }
 
   /// Delete a single message in a group chat.

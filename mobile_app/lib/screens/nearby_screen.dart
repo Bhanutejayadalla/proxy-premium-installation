@@ -216,7 +216,10 @@ class _NearbyScreenState extends State<NearbyScreen> {
         // BLE / GPS TOGGLE
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Row(
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               ChoiceChip(
                 label: Row(
@@ -250,7 +253,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
                   if (mounted) setState(() { _status = _ScanStatus.idle; _errorMessage = ''; });
                 },
               ),
-              const SizedBox(width: 10),
               ChoiceChip(
                 label: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -281,8 +283,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
                   if (mounted) setState(() => _status = _ScanStatus.idle);
                 },
               ),
-              const Spacer(),
-              // Status indicator
               if (_status == _ScanStatus.scanning)
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -295,7 +295,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     Text(
                       state.discoveryMode == DiscoveryMode.ble
                           ? (state.nearbyUsers.isEmpty
-                              ? "Scanning..."
+                              ? "Live scan..."
                               : "${state.bleProxiUsersDetected} found")
                           : "Searching...",
                       style: const TextStyle(fontSize: 12, color: Colors.blue),
@@ -305,7 +305,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
               if (_status == _ScanStatus.done)
                 Text(
                     state.discoveryMode == DiscoveryMode.ble
-                        ? "${state.bleProxiUsersDetected} Proxi"
+                        ? "${state.bleProxiUsersDetected} nearby"
                         : "${state.nearbyUsers.length} found",
                     style: const TextStyle(
                         fontSize: 12,
@@ -547,9 +547,11 @@ class _NearbyScreenState extends State<NearbyScreen> {
                           size: 48, color: Colors.grey[400]),
                       const SizedBox(height: 12),
                       Text(
-                        _status == _ScanStatus.done
-                            ? "No one found nearby. Try again later."
-                            : "Tap the scanner to find people nearby.",
+                        _status == _ScanStatus.scanning
+                            ? "Scanning now. Keep both phones on Nearby with Bluetooth and Location ON."
+                            : _status == _ScanStatus.done
+                                ? "No one found nearby. Try again later."
+                                : "Tap the scanner to find people nearby.",
                         style: TextStyle(color: Colors.grey[600]),
                         textAlign: TextAlign.center,
                       ),

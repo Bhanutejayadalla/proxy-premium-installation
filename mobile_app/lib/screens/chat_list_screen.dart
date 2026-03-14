@@ -1,14 +1,91 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:intl/intl.dart';
 import '../app_state.dart';
+import '../models.dart';
 import 'chat_detail_screen.dart';
 import 'create_group_chat_screen.dart';
 import 'group_chat_detail_screen.dart';
 import 'mesh_chat_screen.dart';
 
+bool _isMoodActiveUser(AppUser? user) {
+  if (user == null) return false;
+  if (user.moodStatus.trim().isEmpty) return false;
+  if (user.moodExpiresAt == null) return false;
+  return user.moodExpiresAt!.isAfter(DateTime.now());
+}
+
 class ChatListScreen extends StatelessWidget {
   const ChatListScreen({super.key});
+
+  Future<void> _showMoodPicker(BuildContext context, AppState state) async {
+    final moodOptions = <String>['Studying', 'Available', 'Busy'];
+    final durationOptions = <Duration>[
+      const Duration(minutes: 30),
+      const Duration(hours: 2),
+      const Duration(hours: 8),
+    ];
+
+    String selectedMood = moodOptions.first;
+    Duration selectedDuration = durationOptions[1];
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Set Mood Status'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: selectedMood,
+                items: moodOptions
+                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                    .toList(),
+                onChanged: (v) => setLocal(() => selectedMood = v ?? moodOptions.first),
+                decoration: const InputDecoration(labelText: 'Mood'),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<Duration>(
+                value: selectedDuration,
+                items: durationOptions
+                    .map((d) => DropdownMenuItem(
+                          value: d,
+                          child: Text(d.inMinutes < 60
+                              ? '${d.inMinutes} mins'
+                              : '${d.inHours} hours'),
+                        ))
+                    .toList(),
+                onChanged: (v) => setLocal(() => selectedDuration = v ?? durationOptions[1]),
+                decoration: const InputDecoration(labelText: 'Duration'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await state.clearMoodStatus();
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Clear'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await state.setMoodStatus(selectedMood, selectedDuration);
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +98,11 @@ class ChatListScreen extends StatelessWidget {
         appBar: AppBar(
           title: Text("Messages (${state.isFormal ? 'Pro' : 'Social'})"),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.emoji_emotions_outlined),
+              tooltip: 'Set mood status',
+              onPressed: () => _showMoodPicker(context, state),
+            ),
             // Mesh broadcast shortcut
             Tooltip(
               message: 'Mesh Broadcast (offline)',
@@ -146,6 +228,10 @@ class _DirectChatsTab extends StatelessWidget {
                 final name = otherUser?.username ?? otherUid;
                 final avatar =
                     otherUser?.getAvatar(state.isFormal) ?? '';
+                final moodActive = _isMoodActiveUser(otherUser);
+                final moodText = moodActive
+                  ? '${otherUser!.moodStatus} until ${DateFormat('h:mm a').format(otherUser.moodExpiresAt!.toLocal())}'
+                  : '';
 
                 return ListTile(
                   leading: CircleAvatar(
@@ -157,8 +243,28 @@ class _DirectChatsTab extends StatelessWidget {
                   ),
                   title: Text(name,
                       style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(lastMsg,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (moodActive)
+                        Container(
+                          margin: const EdgeInsets.only(top: 2, bottom: 3),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            moodText,
+                            style: const TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      Text(lastMsg,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
                   onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(

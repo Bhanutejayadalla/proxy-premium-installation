@@ -54,6 +54,8 @@ class FirebaseService {
       'hiring': false,
       'visibility': 'public',
       'discoverable': true,
+      'mood_status': '',
+      'mood_expires_at': null,
       'created_at': FieldValue.serverTimestamp(),
       'last_active': FieldValue.serverTimestamp(),
     });
@@ -104,6 +106,7 @@ class FirebaseService {
     String? thumbnailUrl,
     double duration = 0,
     String visibility = 'public',
+    List<String> visibleToUids = const [],
   }) async {
     final data = <String, dynamic>{
       'author_id': authorId,
@@ -116,6 +119,7 @@ class FirebaseService {
       'thumbnail_url': thumbnailUrl,
       'duration': duration,
       'visibility': visibility,
+      'visible_to_uids': visibleToUids,
       'likes': <String>[],
       'comments': <Map<String, dynamic>>[],
       'views': 0,
@@ -317,6 +321,13 @@ class FirebaseService {
             snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
   }
 
+  Stream<Map<String, dynamic>?> getChatMetaStream(String chatId) {
+    return _db.collection('chats').doc(chatId).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return {'id': doc.id, ...doc.data()!};
+    });
+  }
+
   Future<void> sendMessage({
     required String chatId,
     required String senderUid,
@@ -325,12 +336,17 @@ class FirebaseService {
     String? text,
     String? fileUrl,
     String? fileType,
+    String? replyToId,
+    String? replyPreview,
     String mode = 'formal',
   }) async {
     await _db.collection('chats').doc(chatId).set({
       'participants': [senderUid, receiverUid],
       'last_message': text ?? (fileType != null ? 'Sent a \$fileType' : ''),
       'last_timestamp': FieldValue.serverTimestamp(),
+      'seen_by_uid': {
+        senderUid: FieldValue.serverTimestamp(),
+      },
       'mode': mode,
     }, SetOptions(merge: true));
 
@@ -344,6 +360,13 @@ class FirebaseService {
       'text': text ?? '',
       'file_url': fileUrl,
       'file_type': fileType,
+      'reply_to_id': replyToId,
+      'reply_preview': replyPreview,
+      'reactions': <String, dynamic>{},
+      'is_deleted': false,
+      'deleted_for': <String>[],
+      'edited_at': null,
+      'seen_at': null,
       'timestamp': FieldValue.serverTimestamp(),
     });
 
@@ -371,6 +394,114 @@ class FirebaseService {
       }
       return docs;
     });
+  }
+
+  Future<void> setChatTyping({
+    required String chatId,
+    required String uid,
+    required bool isTyping,
+  }) async {
+    final ref = _db.collection('chats').doc(chatId).collection('typing').doc(uid);
+    if (isTyping) {
+      await ref.set({
+        'is_typing': true,
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else {
+      await ref.set({
+        'is_typing': false,
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  Stream<List<Map<String, dynamic>>> getChatTypingStream(String chatId) {
+    return _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('typing')
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+  }
+
+  Future<void> markChatSeen({
+    required String chatId,
+    required String uid,
+  }) async {
+    await _db.collection('chats').doc(chatId).set({
+      'seen_by_uid': {
+        uid: FieldValue.serverTimestamp(),
+      },
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> editChatMessage({
+    required String chatId,
+    required String messageId,
+    required String newText,
+  }) async {
+    await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+      'text': newText,
+      'edited_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> toggleChatReaction({
+    required String chatId,
+    required String messageId,
+    required String emoji,
+    required String uid,
+    required bool add,
+  }) async {
+    await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+      'reactions.$emoji':
+          add ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  Future<void> deleteChatMessageForMe({
+    required String chatId,
+    required String messageId,
+    required String uid,
+  }) async {
+    await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .set({
+      'deleted_for': FieldValue.arrayUnion([uid]),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteChatMessageForEveryone({
+    required String chatId,
+    required String messageId,
+  }) async {
+    await _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .set({
+      'is_deleted': true,
+      'deleted_for_everyone': true,
+      'deleted_at': FieldValue.serverTimestamp(),
+      'text': '',
+      'file_url': null,
+      'file_type': null,
+      'reply_preview': null,
+    }, SetOptions(merge: true));
   }
 
   // ─────────────────────────────────────────────
@@ -791,6 +922,9 @@ class FirebaseService {
       'name': name,
       'creator': creatorUid,
       'members': all,
+      'admins': [creatorUid],
+      'roles': {creatorUid: 'creator'},
+      'pinned_message_id': null,
       'last_message': '',
       'last_timestamp': FieldValue.serverTimestamp(),
       'created_at': FieldValue.serverTimestamp(),
@@ -823,6 +957,8 @@ class FirebaseService {
     String? text,
     String? fileUrl,
     String? fileType,
+    String? replyToId,
+    String? replyPreview,
   }) async {
     await _db.collection('group_chats').doc(groupId).update({
       'last_message': text ?? (fileType != null ? 'Sent a $fileType' : ''),
@@ -839,8 +975,43 @@ class FirebaseService {
       'text': text ?? '',
       'file_url': fileUrl,
       'file_type': fileType,
+      'reply_to_id': replyToId,
+      'reply_preview': replyPreview,
+      'reactions': <String, dynamic>{},
+      'is_deleted': false,
+      'deleted_for': <String>[],
+      'edited_at': null,
       'timestamp': FieldValue.serverTimestamp(),
     });
+  }
+
+  Stream<Map<String, dynamic>?> getGroupMetaStream(String groupId) {
+    return _db.collection('group_chats').doc(groupId).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return {'id': doc.id, ...doc.data()!};
+    });
+  }
+
+  Future<void> setGroupTyping({
+    required String groupId,
+    required String uid,
+    required bool isTyping,
+  }) async {
+    final ref =
+        _db.collection('group_chats').doc(groupId).collection('typing').doc(uid);
+    await ref.set({
+      'is_typing': isTyping,
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Stream<List<Map<String, dynamic>>> getGroupTypingStream(String groupId) {
+    return _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('typing')
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
   }
 
   /// Stream of messages in a group chat.
@@ -866,7 +1037,110 @@ class FirebaseService {
   Future<void> removeGroupMember(String groupId, String uid) async {
     await _db.collection('group_chats').doc(groupId).update({
       'members': FieldValue.arrayRemove([uid]),
+      'admins': FieldValue.arrayRemove([uid]),
     });
+  }
+
+  Future<void> setGroupRole({
+    required String groupId,
+    required String uid,
+    required String role,
+  }) async {
+    await _db.collection('group_chats').doc(groupId).update({
+      'roles.$uid': role,
+      'admins': role == 'admin'
+          ? FieldValue.arrayUnion([uid])
+          : FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  Future<void> pinGroupMessage({
+    required String groupId,
+    required String messageId,
+    required String pinnedBy,
+  }) async {
+    await _db.collection('group_chats').doc(groupId).update({
+      'pinned_message_id': messageId,
+      'pinned_by': pinnedBy,
+      'pinned_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> unpinGroupMessage(String groupId) async {
+    await _db.collection('group_chats').doc(groupId).update({
+      'pinned_message_id': null,
+      'pinned_by': null,
+      'pinned_at': null,
+    });
+  }
+
+  Future<void> editGroupMessage({
+    required String groupId,
+    required String messageId,
+    required String newText,
+  }) async {
+    await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+      'text': newText,
+      'edited_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> toggleGroupReaction({
+    required String groupId,
+    required String messageId,
+    required String emoji,
+    required String uid,
+    required bool add,
+  }) async {
+    await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+      'reactions.$emoji':
+          add ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  Future<void> deleteGroupMessageForMe({
+    required String groupId,
+    required String messageId,
+    required String uid,
+  }) async {
+    await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .doc(messageId)
+        .set({
+      'deleted_for': FieldValue.arrayUnion([uid]),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteGroupMessageForEveryone({
+    required String groupId,
+    required String messageId,
+  }) async {
+    await _db
+        .collection('group_chats')
+        .doc(groupId)
+        .collection('messages')
+        .doc(messageId)
+        .set({
+      'is_deleted': true,
+      'deleted_for_everyone': true,
+      'deleted_at': FieldValue.serverTimestamp(),
+      'text': '',
+      'file_url': null,
+      'file_type': null,
+      'reply_preview': null,
+    }, SetOptions(merge: true));
   }
 
   // ─────────────────────────────────────────────

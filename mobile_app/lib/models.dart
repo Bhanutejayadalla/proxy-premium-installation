@@ -54,6 +54,8 @@ class AppUser {
   final String visibility;
   final bool discoverable;
   final String locationSharing; // 'connections' | 'off'
+  final String moodStatus;
+  final DateTime? moodExpiresAt;
 
   AppUser({
     required this.uid,
@@ -93,6 +95,8 @@ class AppUser {
     this.visibility = 'public',
     this.discoverable = true,
     this.locationSharing = 'connections',
+    this.moodStatus = '',
+    this.moodExpiresAt,
   });
 
   factory AppUser.fromFirestore(DocumentSnapshot doc) {
@@ -135,6 +139,8 @@ class AppUser {
       visibility: d['visibility'] ?? 'public',
       discoverable: d['discoverable'] ?? true,
       locationSharing: d['location_sharing'] ?? 'connections',
+      moodStatus: d['mood_status'] ?? '',
+      moodExpiresAt: (d['mood_expires_at'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -217,6 +223,8 @@ class AppUser {
     String? visibility,
     bool? discoverable,
     String? locationSharing,
+    String? moodStatus,
+    DateTime? moodExpiresAt,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -256,6 +264,8 @@ class AppUser {
       visibility: visibility ?? this.visibility,
       discoverable: discoverable ?? this.discoverable,
       locationSharing: locationSharing ?? this.locationSharing,
+      moodStatus: moodStatus ?? this.moodStatus,
+      moodExpiresAt: moodExpiresAt ?? this.moodExpiresAt,
     );
   }
 }
@@ -279,6 +289,7 @@ class Post {
   final int shares;
   final String type; // post | story | reel
   final String visibility; // public | connections | private
+  final List<String> visibleToUids;
 
   Post({
     required this.id,
@@ -295,6 +306,7 @@ class Post {
     this.shares = 0,
     this.type = 'post',
     this.visibility = 'public',
+    this.visibleToUids = const [],
   });
 
   factory Post.fromFirestore(DocumentSnapshot doc) {
@@ -316,6 +328,7 @@ class Post {
       shares: d['shares'] ?? 0,
       type: d['type'] ?? 'post',
       visibility: d['visibility'] ?? 'public',
+      visibleToUids: List<String>.from(d['visible_to_uids'] ?? []),
     );
   }
 
@@ -338,6 +351,7 @@ class Post {
       shares: json['shares'] ?? 0,
       type: json['type'] ?? 'post',
       visibility: json['visibility'] ?? 'public',
+      visibleToUids: List<String>.from(json['visible_to_uids'] ?? []),
     );
   }
 }
