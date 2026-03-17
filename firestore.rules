@@ -35,7 +35,12 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
                     && request.resource.data.author_id == request.auth.uid;
-      allow update: if isSignedIn();   // likes, comments from any user
+      // Owner can update their post (description, location, song, media)
+      // Others can only add likes/comments
+      allow update: if isSignedIn()
+                    && (resource.data.author_id == request.auth.uid
+                        || request.resource.data.diff(resource.data)
+                          .affectedKeys().hasOnly(['likes', 'comments', 'views', 'shares'].toSet()));
       allow delete: if isSignedIn()
                     && resource.data.author_id == request.auth.uid;
     }
@@ -45,6 +50,9 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
                     && request.resource.data.author_id == request.auth.uid;
+      // Owner can update their story (description, song)
+      allow update: if isSignedIn()
+                    && resource.data.author_id == request.auth.uid;
       allow delete: if isSignedIn()
                     && resource.data.author_id == request.auth.uid;
     }
@@ -57,6 +65,13 @@ service cloud.firestore {
       allow update: if isSignedIn();   // view counts, likes
       allow delete: if isSignedIn()
                     && resource.data.author_id == request.auth.uid;
+    }
+
+    // ── Songs (for posts/stories music) ────────────────────────
+    match /songs/{songId} {
+      allow read: if isSignedIn();   // Any signed-in user can view songs
+      allow create: if isSignedIn();  // Any signed-in user can upload songs
+      allow update, delete: if isSignedIn() && request.auth.uid == resource.data.userId;  // Owner only
     }
 
     // ── Chats & Messages ──────────────────────────────────────

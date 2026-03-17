@@ -207,4 +207,53 @@ Proxi maintains **separate social graphs for Pro and Social modes**:
 
 ---
 
-**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: February 2026**
+## 🎵 Music Feature
+
+### How to Add Music to Posts
+
+1. Go to **+ Post** tab
+2. Type your post text (or add image)
+3. Tap the **🎵 Music icon** in the footer
+4. **Music Selector** opens with available songs:
+   - **Demo songs** (5 default tracks)
+   - **Your uploaded songs** (if any)
+5. Search or scroll to find a song → Tap to select
+6. Selected song appears in the post preview
+7. Tap **Post** to publish with music
+
+### How to Add Music to Stories
+
+1. Go to **+ Post** tab
+2. Toggle **"Story"** at the top
+3. Tap the **🎵 Music icon**
+4. Select a song from the Music Selector
+5. Tap **Post** to publish story with background music
+6. Story expires after **24 hours**
+
+### How to Play Music
+
+1. Open any post or story with music
+2. Tap the **Audio Player Widget** (black card with song details)
+3. Tap the **▶ Play button** to start/pause
+4. Use the **progress bar** to seek to any point
+
+### How to Upload Your Own Songs
+
+1. Go to **Music Library** (🎵 icon in header)
+2. Tap **+ Upload** button
+3. **Pick audio file** from your device:
+   - Supported formats: MP3, M4A, AAC, WAV, OGG
+   - The filename becomes the song title automatically
+4. Tap **Select** → Song uploads to Cloudinary
+5. New song appears in your Music Library
+
+### Music Library
+
+- **Browse**: Default songs + your uploaded songs
+- **Search**: Filter by song name or artist
+- **Your songs**: Only you can delete songs you uploaded
+- **Default songs**: Shared library (cannot be deleted)
+
+---
+
+**Built with Flutter + Firebase** | **Proxi 2.0** | **Last Updated: March 2026**

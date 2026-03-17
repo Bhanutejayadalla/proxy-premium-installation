@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'app_state.dart';
 import 'services/notification_service.dart';
+import 'services/music_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_shell.dart';
 
@@ -14,6 +15,9 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Initialize demo songs (one-time, checks if already exist)
+  await MusicService().addDemoSongs();
 
   // Register background message handler
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);

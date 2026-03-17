@@ -314,6 +314,8 @@ Here's the testing checklist. Do them in order:
 | Photo post | + tab → tap camera icon → pick photo → Post | Post with image appears |
 | Story | + tab → toggle "Story" → post | Story circle at top of feed |
 | View story | Tap story circle | Full-screen story viewer |
+| Post with music | + tab → type text → tap 🎵 → select song → Post | Post shows audio player |
+| Story with music | + tab → toggle Story → tap 🎵 → select song → Post | Story plays music when viewed |
 
 ### 7.4 — Social Interactions
 | Test | Steps | Expected |
@@ -364,8 +366,58 @@ Here's the testing checklist. Do them in order:
 | Send request | View user → Connect button | Status changes to "Pending" |
 | Accept request | Login as other user → Notifications → Accept | Connection established |
 
-### Creating a 2nd Test Account
+### 7.12 — Music Library & Songs (NEW)
+| Test | Steps | Expected |
+|------|-------|----------|
+| Open Music Library | Tap 🎵 icon in header | See 5 demo songs + any uploaded songs |
+| Search songs | Music Library → type song name | Results filter in real-time |
+| Play demo song | Select any demo song → tap ▶ | Audio plays (or error if not loading) |
+| Create post with music | + tab → 🎵 icon → select song → Post | Post shows audio player below content |
+| Create story with music | + tab → toggle Story → 🎵 → select → Post | Story viewer shows music player |
+
+---
+
+## PART 12: Hard Restart (After Code Updates)
+
+If you make **code changes** or **update Firestore rules**, you may need a hard restart to see changes:
+
+```powershell
+cd d:\Proxi_Social_Connectivity\mobile_app
+
+# Press Q in terminal to quit flutter run (if running)
+q
+
+# Clear all cache and rebuild
+flutter clean
+flutter pub get
+flutter run
+```
+
+**Why hard restart is needed:**
+- Clears app cache and state
+- Forces re-download of Firestore rules
+- Triggers any initialization code (like `addDemoSongs()`)
+- Refreshes all Android build files
+
+**When to do hard restart:**
+- ✅ After Firestore security rules are deployed
+- ✅ After adding/changing demo data
+- ✅ After Firebase configuration changes
+- ✅ If app behaves strangely or features not loading
+- ✅ If songs don't appear in Music Library
+
+---
+
+## PART 13: Creating a 2nd Test Account
+
 You need 2 accounts to test chat, connections, and notifications. Options:
+- **Easiest:** Firebase Console → Authentication → **Add User** → enter a 2nd email/password
+- Then create their Firestore profile: Firestore → `users` collection → Add document (doc ID = the UID from Auth) with fields: `username`, `email`, `bio`, etc.
+- **Or:** Install the APK on a 2nd phone/emulator and register normally
+
+---
+
+## PART 14: Verify Data in Firebase Console
 - **Easiest:** Firebase Console → Authentication → **Add User** → enter a 2nd email/password
 - Then create their Firestore profile: Firestore → `users` collection → Add document (doc ID = the UID from Auth) with fields: `username`, `email`, `bio`, etc.
 - **Or:** Install the APK on a 2nd phone/emulator and register normally
@@ -383,11 +435,12 @@ After testing, check your data is actually in Firebase:
    - `stories` → your stories
    - `chats` → chat rooms with messages subcollection
    - `notifications` → notification documents
-3. **Cloudinary Dashboard → Media Library** → You should see uploaded images/videos
+   - `songs` → demo songs + user-uploaded songs
+3. **Cloudinary Dashboard → Media Library** → You should see uploaded images/videos/audio
 
 ---
 
-## PART 9: PUSH TO GITHUB
+## PART 15: Push to GitHub
 
 Now that your app is running, let's push everything to GitHub so you can access it from anywhere and collaborate with others.
 
@@ -571,10 +624,11 @@ git push
 
 ---
 
-## PART 10: NEXT STEPS
+## PART 16: Next Steps
 
 | Priority | What | How |
 |----------|------|-----|
+| **Do now** | Test music feature | Section 7.12 in Part 7 |
 | **Do now** | Fix any bugs from testing | Check terminal for errors, run `flutter logs` |
 | **Do now** | Deploy security rules | Part 2 Step 2.7 above |
 | **Soon** | Build release APK | `flutter build apk --release` → share APK with friends |
@@ -585,7 +639,7 @@ git push
 
 ---
 
-## PART 11: TROUBLESHOOTING
+## PART 17: Troubleshooting
 
 ### Issue: "Unable to locate Android SDK"
 
@@ -681,6 +735,35 @@ flutter run
 2. Grant Location permission (Android requires it for BLE)
 3. Test on physical device (BLE doesn't work on emulators)
 4. Ensure `flutter_blue_plus` package is installed
+
+### Issue: "Songs don't appear in Music Library"
+
+**Solutions:**
+1. Do a **hard restart** (flutter clean → flutter pub get → flutter run)
+2. Make sure **Firestore rules are deployed** (songs collection must allow creation)
+3. Check Firebase Console → Firestore → songs collection (should have 5 demo songs)
+4. If empty, the `addDemoSongs()` didn't run. Try manually adding a song via Music Library → Upload button
+5. Run `flutter logs` in PowerShell to see error messages
+
+### Issue: "Music plays but shows 'Unable to load audio'"
+
+**Solutions:**
+1. Check internet connection is working
+2. Verify the audio URL is accessible (not blocked by firewall)
+3. Delete old songs from Firestore and rebuild with new URLs (check Firebase Console → Firestore)
+4. Try uploading your own song via Music Library → Upload
+5. If uploaded songs work but demos don't, the demo URLs may be invalid
+
+### Issue: "Music upload fails"
+
+**Solutions:**
+1. Verify Cloudinary credentials in `cloudinary_service.dart`:
+   - `cloudName` matches your Cloudinary dashboard
+   - `uploadPreset` exists and is set to **Unsigned**
+2. Check file size (should be < 100MB for free tier)
+3. Supported formats: MP3, M4A, AAC, WAV, OGG
+4. Check internet connection
+5. Run `flutter logs` to see error details
 
 ---
 

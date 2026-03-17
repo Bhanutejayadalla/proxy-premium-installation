@@ -2,7 +2,7 @@
 
 **An enhanced dual-mode social networking app that adapts to your life: Professional when you need it, Casual when you don't.**
 
-![Version](https://img.shields.io/badge/version-3.1.1_Premium-blue)
+![Version](https://img.shields.io/badge/version-3.2.0_Premium-blue)
 ![Firebase](https://img.shields.io/badge/backend-Firebase-orange)
 ![Cloudinary](https://img.shields.io/badge/media-Cloudinary-purple)
 ![Flutter](https://img.shields.io/badge/Flutter-3.0+-blue)
@@ -32,10 +32,25 @@
 
 ### 📝 Content Creation
 - **Posts**: Text, images, mixed media (mode-specific)
+  - ✨ **NEW**: Add location tags to posts
+  - ✨ **NEW**: Add music/songs from music library
+  - ✨ **NEW**: Edit posts (description, location, music, media) WITHOUT deleting
+  - ✨ **NEW**: "Edited" label shows on modified posts with timestamps
 - **Stories**: 24-hour expiring content with tap-to-pause viewer
+  - ✨ **NEW**: Add background music to stories
+  - ✨ **NEW**: Full audio player with play/pause in story viewer
+  - ✨ **NEW**: Auto-delete after 24 hours
 - **Reels**: Short-form vertical videos (Casual mode)
 - **Jobs**: Professional listings with skills/salary (Formal mode)
 - **Delete Content**: Remove your own posts, reels, and stories at any time
+
+### 🎵 Music Integration (NEW in v3.2)
+- **Song Library**: Browse and select from predefined songs
+- **Post Music**: Add music to regular posts
+- **Story Music**: Add background music to 24-hour stories
+- **Audio Player**: Play/pause with progress bar and seek controls
+- **Search**: Filter songs by name or artist
+- **Music Selector Widget**: Easy-to-use dialog for choosing songs
 
 ### 💬 Real-Time Chat
 - **Direct Messages (DM)**: One-on-one messaging with image sharing

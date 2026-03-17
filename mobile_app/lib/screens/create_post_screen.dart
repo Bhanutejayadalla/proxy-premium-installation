@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../constants.dart';
 import '../models.dart';
+import '../widgets/music_selector_widget.dart';
 
 class CreatePostScreen extends StatefulWidget {
   final bool initialIsStory;
@@ -15,11 +16,13 @@ class CreatePostScreen extends StatefulWidget {
 
 class _CreatePostScreenState extends State<CreatePostScreen> {
   final _text = TextEditingController();
+  final _locationCtrl = TextEditingController();
   File? _file;
   late bool isStory;
   bool _isPosting = false;
   String _postVisibility = 'public';
   final Set<String> _selectedVisibleUids = {};
+  Song? _selectedSong;
 
   @override
   void initState() {
@@ -46,6 +49,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           visibleToUids: _postVisibility == 'selected_connections'
             ? _selectedVisibleUids.toList()
             : const [],
+          location: _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
+          song: _selectedSong,
           );
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -263,6 +268,44 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       ),
                       maxLines: 5,
                     ),
+                    
+                    // Location field (only for feed posts)
+                    if (!isStory) ...[
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _locationCtrl,
+                        decoration: InputDecoration(
+                          hintText: "📍 Add a location...",
+                          prefixIcon: const Icon(Icons.location_on),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    // Music selector (for both posts and stories)
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () async {
+                        await showDialog(
+                          context: context,
+                          builder: (ctx) => MusicSelectorWidget(
+                            onSelected: (song) {
+                              setState(() => _selectedSong = song);
+                            },
+                            initialSong: _selectedSong,
+                          ),
+                        );
+                      },
+                      child: MusicSelectorButton(
+                        selectedSong: _selectedSong,
+                        onSelected: (song) {
+                          setState(() => _selectedSong = song);
+                        },
+                      ),
+                    ),
+
                     if (_file != null) ...[
                       const SizedBox(height: 12),
                       Stack(
@@ -320,5 +363,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _text.dispose();
+    _locationCtrl.dispose();
+    super.dispose();
   }
 }

@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models.dart';
 import '../app_state.dart';
+import '../screens/edit_post_screen.dart';
+import 'audio_player_widget.dart';
 
 class PostCard extends StatefulWidget {
   final Post post;
@@ -82,6 +84,13 @@ class _PostCardState extends State<PostCard> {
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert, size: 20),
       onSelected: (value) async {
+        if (value == 'edit' && context.mounted) {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => EditPostScreen(post: widget.post)),
+          );
+          return;
+        }
         if (value == 'delete') {
           final confirmed = await showDialog<bool>(
             context: context,
@@ -110,6 +119,16 @@ class _PostCardState extends State<PostCard> {
         }
       },
       itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'edit',
+          child: Row(
+            children: [
+              Icon(Icons.edit_outlined, size: 20),
+              SizedBox(width: 8),
+              Text('Edit Post'),
+            ],
+          ),
+        ),
         const PopupMenuItem(
           value: 'delete',
           child: Row(
@@ -335,6 +354,45 @@ class _PostCardState extends State<PostCard> {
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(widget.post.text),
+                  ),
+                if (widget.post.isEdited)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Edited',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                if ((widget.post.location ?? '').isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            widget.post.location!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if ((widget.post.songUrl ?? '').isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: AudioPlayerWidget(
+                      audioUrl: widget.post.songUrl!,
+                      songName: widget.post.songName,
+                      artist: widget.post.artist,
+                    ),
                   ),
                 if (widget.post.comments.isNotEmpty)
                   Padding(

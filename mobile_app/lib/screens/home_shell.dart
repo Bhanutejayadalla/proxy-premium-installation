@@ -12,6 +12,7 @@ import 'notifications_screen.dart';
 import 'jobs_screen.dart';
 import 'reels_screen.dart';
 import 'campus_hub_screen.dart';
+import 'song_list_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -155,6 +156,14 @@ class _HomeShellState extends State<HomeShell> {
                       ),
                     ),
 
+                    IconButton(
+                      icon: const Icon(LucideIcons.music),
+                      tooltip: 'Music Library',
+                      onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const SongListScreen())),
+                    ),
                     IconButton(
                       icon: const Icon(LucideIcons.layoutGrid),
                       tooltip: 'Campus Hub',

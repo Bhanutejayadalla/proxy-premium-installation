@@ -400,6 +400,8 @@ class AppState extends ChangeNotifier {
     bool isStory, {
     String? visibility,
     List<String> visibleToUids = const [],
+    String? location,
+    Song? song,
   }) async {
     if (currentUser == null) return;
     String? mediaUrl;
@@ -418,7 +420,48 @@ class AppState extends ChangeNotifier {
       mediaUrl: mediaUrl,
       visibility: visibility ?? currentUser!.visibility,
       visibleToUids: visibleToUids,
+      location: location,
+      songUrl: song?.url,
+      songName: song?.name,
+      artist: song?.artist,
     );
+  }
+
+  /// Update an existing post (edit post feature)
+  /// Allows changing description, location, music, and optionally media
+  Future<void> updatePost({
+    required String postId,
+    String? description,
+    String? location,
+    File? newMediaFile,
+    Song? song,
+    bool clearLocation = false,
+    bool clearSong = false,
+  }) async {
+    if (currentUser == null) return;
+
+    String? newMediaUrl;
+    if (newMediaFile != null) {
+      final path = 'posts/${currentUser!.uid}/${DateTime.now().millisecondsSinceEpoch}';
+      newMediaUrl = await firebase.uploadFile(newMediaFile, path);
+    }
+
+    debugPrint('[PostEdit] updatePost postId=$postId user=${currentUser!.uid} clearSong=$clearSong clearLocation=$clearLocation');
+    await firebase.updatePost(
+      postId: postId,
+      editorUid: currentUser!.uid,
+      text: description,
+      location: location,
+      clearLocation: clearLocation,
+      mediaUrl: newMediaUrl,
+      songUrl: song?.url,
+      songName: song?.name,
+      artist: song?.artist,
+      clearSong: clearSong,
+    );
+
+    // Keep UI in sync right after edit even before next stream tick.
+    await refresh();
   }
 
   Future<void> createReel(String text, File videoFile) async {

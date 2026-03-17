@@ -290,6 +290,15 @@ class Post {
   final String type; // post | story | reel
   final String visibility; // public | connections | private
   final List<String> visibleToUids;
+  
+  // Phase 6: Posts with Music & Location
+  final String? location;
+  final String? songUrl;
+  final String? songName;
+  final String? artist;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool isEdited;
 
   Post({
     required this.id,
@@ -307,6 +316,13 @@ class Post {
     this.type = 'post',
     this.visibility = 'public',
     this.visibleToUids = const [],
+    this.location,
+    this.songUrl,
+    this.songName,
+    this.artist,
+    this.createdAt,
+    this.updatedAt,
+    this.isEdited = false,
   });
 
   factory Post.fromFirestore(DocumentSnapshot doc) {
@@ -329,6 +345,13 @@ class Post {
       type: d['type'] ?? 'post',
       visibility: d['visibility'] ?? 'public',
       visibleToUids: List<String>.from(d['visible_to_uids'] ?? []),
+      location: d['location'],
+      songUrl: d['song_url'],
+      songName: d['song_name'],
+      artist: d['artist'],
+      createdAt: (d['created_at'] as Timestamp?)?.toDate(),
+      updatedAt: (d['updated_at'] as Timestamp?)?.toDate(),
+      isEdited: d['is_edited'] ?? false,
     );
   }
 
@@ -352,6 +375,13 @@ class Post {
       type: json['type'] ?? 'post',
       visibility: json['visibility'] ?? 'public',
       visibleToUids: List<String>.from(json['visible_to_uids'] ?? []),
+      location: json['location'],
+      songUrl: json['song_url'],
+      songName: json['song_name'],
+      artist: json['artist'],
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
+      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
+      isEdited: json['is_edited'] ?? false,
     );
   }
 }
@@ -372,6 +402,138 @@ class Comment {
         text: json['text'] ?? '',
         uid: json['uid'],
       );
+}
+
+// ─────────────────────────────────────────────
+//  STORY MODEL (Phase 6)
+// ─────────────────────────────────────────────
+
+class Story {
+  final String id;
+  final String authorId;
+  final String username;
+  final String authorAvatar;
+  final String mediaUrl;
+  final String? songUrl;
+  final String? songName;
+  final String? artist;
+  final DateTime createdAt;
+  final DateTime expiresAt;
+
+  Story({
+    required this.id,
+    required this.authorId,
+    required this.username,
+    required this.authorAvatar,
+    required this.mediaUrl,
+    this.songUrl,
+    this.songName,
+    this.artist,
+    required this.createdAt,
+    required this.expiresAt,
+  });
+
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
+
+  factory Story.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return Story(
+      id: doc.id,
+      authorId: d['author_id'] ?? '',
+      username: d['username'] ?? '',
+      authorAvatar: d['author_avatar'] ?? '',
+      mediaUrl: d['media_url'] ?? '',
+      songUrl: d['song_url'],
+      songName: d['song_name'],
+      artist: d['artist'],
+      createdAt: (d['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      expiresAt: (d['expires_at'] as Timestamp?)?.toDate() ?? DateTime.now().add(const Duration(hours: 24)),
+    );
+  }
+
+  factory Story.fromJson(Map<String, dynamic> json) {
+    return Story(
+      id: json['id'] ?? '',
+      authorId: json['author_id'] ?? '',
+      username: json['username'] ?? '',
+      authorAvatar: json['author_avatar'] ?? '',
+      mediaUrl: json['media_url'] ?? '',
+      songUrl: json['song_url'],
+      songName: json['song_name'],
+      artist: json['artist'],
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      expiresAt: json['expires_at'] != null ? DateTime.parse(json['expires_at']) : DateTime.now().add(const Duration(hours: 24)),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  SONG MODEL (Phase 6)
+// ─────────────────────────────────────────────
+
+class Song {
+  final String id;
+  final String name;
+  final String artist;
+  final String url;
+  final String? thumbnailUrl;
+  final String? userId; // null for default songs, uid for user-uploaded
+  final DateTime? createdAt;
+
+  Song({
+    required this.id,
+    required this.name,
+    required this.artist,
+    required this.url,
+    this.thumbnailUrl,
+    this.userId,
+    this.createdAt,
+  });
+
+  /// Check if song belongs to a user
+  bool isOwnedBy(String uid) => userId == uid;
+
+  /// Check if this is a default song
+  bool isDefault() => userId == null;
+
+  factory Song.fromFirestore(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return Song(
+      id: doc.id,
+      name: d['title'] ?? d['name'] ?? '', // Support both 'title' and 'name'
+      artist: d['artist'] ?? '',
+      url: d['audioUrl'] ?? d['url'] ?? '', // Support both 'audioUrl' and 'url'
+      thumbnailUrl: d['imageUrl'] ?? d['thumbnail_url'],
+      userId: d['userId'],
+      createdAt: (d['createdAt'] as Timestamp?)?.toDate(),
+    );
+  }
+
+  factory Song.fromJson(Map<String, dynamic> json) {
+    return Song(
+      id: json['id'] ?? '',
+      name: json['title'] ?? json['name'] ?? '',
+      artist: json['artist'] ?? '',
+      url: json['audioUrl'] ?? json['url'] ?? '',
+      thumbnailUrl: json['imageUrl'] ?? json['thumbnail_url'],
+      userId: json['userId'],
+      createdAt: json['createdAt'] != null 
+        ? DateTime.parse(json['createdAt'] as String)
+        : null,
+    );
+  }
+
+  /// Convert to Firestore document
+  Map<String, dynamic> toFirestore() {
+    return {
+      'title': name,
+      'artist': artist,
+      'audioUrl': url,
+      'imageUrl': thumbnailUrl,
+      'userId': userId,
+      'createdAt': createdAt,
+    };
+  }
 }
 
 // ─────────────────────────────────────────────

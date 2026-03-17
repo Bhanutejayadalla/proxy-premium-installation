@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
+import '../widgets/audio_player_widget.dart';
 
 /// Full-screen story viewer.
 ///
@@ -29,6 +30,7 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
   double _segmentProgress = 0.0;
   Timer? _timer;
   bool _isPaused = false;
+  bool _showMusic = false;
   final TextEditingController _replyCtrl = TextEditingController();
 
   Map<String, dynamic> get _current => _stories[_currentIndex];
@@ -111,6 +113,9 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
   @override
   Widget build(BuildContext context) {
     final mediaUrl = _current['media_url'];
+    final songUrl = _current['song_url'];
+    final songName = _current['song_name'];
+    final artist = _current['artist'];
     final screenW = MediaQuery.of(context).size.width;
 
     return Scaffold(
@@ -305,6 +310,19 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
                   ],
                 ),
               ),
+
+              // MUSIC PLAYER (if story has music)
+              if (songUrl != null && songUrl.toString().isNotEmpty)
+                Positioned(
+                  bottom: 80,
+                  left: 15,
+                  right: 15,
+                  child: CompactAudioPlayerWidget(
+                    audioUrl: songUrl,
+                    songName: songName,
+                    artist: artist,
+                  ),
+                ),
             ],
           ),
         ),

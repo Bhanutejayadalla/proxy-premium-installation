@@ -598,6 +598,73 @@ Communities are topic-based groups (departments, interests, clubs) with their ow
 |-------|----------|
 | "Could not get location" | Enable Location services in device Settings |
 | "Requires internet" | Connect to WiFi or mobile data |
+
+---
+
+## 17. Music Library & Audio (NEW in v3.2)
+
+### Accessing Music Library
+1. Tap the **🎵 Music icon** in the top navigation bar (next to notifications).
+2. The Music Library opens with all available songs:
+   - **Demo Songs** (5 default tracks by Bensound)
+   - **Your Uploaded Songs** (if any)
+3. Total count shows: "X songs"
+
+### Searching for Songs
+1. In Music Library, tap the **search bar** at the top.
+2. Type song name or artist name.
+3. Results filter in real-time.
+4. Tap any result to select it (closes the library and selects the song).
+
+### Uploading Your Own Songs
+1. Go to Music Library → Tap **+ Upload** button.
+2. File picker opens showing your device storage.
+3. Select an audio file (MP3, M4A, AAC, WAV, OGG).
+4. The **filename becomes the song title** automatically.
+   - E.g., file "relaxing_vibes.mp3" → Song named "relaxing vibes"
+5. Tap **Select** → song uploads to Cloudinary.
+6. When upload completes, the new song appears in your Music Library.
+7. You can now use it in posts and stories.
+
+### Adding Music to Posts
+1. Go to **+ Post** tab.
+2. Type your post text (optional: add image).
+3. Tap the **🎵 Music icon** in the footer.
+4. **Music Selector** dialog opens.
+5. Search or scroll to find a song.
+6. Tap the song to select it.
+7. Dialog closes and the song appears in your post preview.
+8. Tap **Post** to publish with music.
+
+### Adding Music to Stories
+1. Go to **+ Post** tab.
+2. Tap the **Story toggle** at the top (turns blue when active).
+3. Type story text (optional: add image/video).
+4. Tap the **🎵 Music icon**.
+5. Select a song from the Music Selector.
+6. Tap **Post** to publish.
+7. The story shows music as background audio.
+8. Story expires after **24 hours**.
+
+### Playing Music in Posts/Stories
+1. Open any post or story that contains music.
+2. Tap the **Audio Player Widget** (black card with song name and artist).
+3. The player expands showing:
+   - Song name and artist
+   - ▶ Play/pause button
+   - Progress bar with current time and total duration
+4. Tap **▶** to start playing.
+5. Tap **▶** again to pause.
+6. Drag the progress bar to seek to any point in the song.
+
+### Managing Your Songs
+- **Delete Your Song**: Go to Music Library, long-press your song → tap **Delete**.
+- **Default Songs**: Cannot be deleted (shared library).
+- **Who Can See Your Songs**: Only you can see your uploaded songs in your profile; all users can select them in the Music Selector when creating posts/stories.
+
+---
+
+**Last Updated: March 2026**
 | No users found | Other users must be online and within 10 km |
 
 ---

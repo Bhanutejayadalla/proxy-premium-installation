@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models.dart';
 import 'cloudinary_service.dart';
 
@@ -107,6 +108,10 @@ class FirebaseService {
     double duration = 0,
     String visibility = 'public',
     List<String> visibleToUids = const [],
+    String? location,
+    String? songUrl,
+    String? songName,
+    String? artist,
   }) async {
     final data = <String, dynamic>{
       'author_id': authorId,
@@ -124,8 +129,21 @@ class FirebaseService {
       'comments': <Map<String, dynamic>>[],
       'views': 0,
       'shares': 0,
+      'created_at': FieldValue.serverTimestamp(),
+      'updated_at': FieldValue.serverTimestamp(),
+      'is_edited': false,
       'timestamp': FieldValue.serverTimestamp(),
     };
+
+    // Add music and location fields
+    if (location != null && location.isNotEmpty) {
+      data['location'] = location;
+    }
+    if (songUrl != null && songUrl.isNotEmpty) {
+      data['song_url'] = songUrl;
+      data['song_name'] = songName ?? 'Unknown';
+      data['artist'] = artist ?? 'Unknown';
+    }
 
     if (type == 'story') {
       data['expires_at'] =
@@ -136,6 +154,60 @@ class FirebaseService {
     } else {
       await _db.collection('posts').add(data);
     }
+  }
+
+  /// Update a post (for post editing)
+  /// Supports updating description, location, song, and optionally media
+  Future<void> updatePost({
+    required String postId,
+    required String editorUid,
+    String? text,
+    String? location,
+    bool clearLocation = false,
+    String? mediaUrl,
+    String? thumbnailUrl,
+    String? songUrl,
+    String? songName,
+    String? artist,
+    bool clearSong = false,
+  }) async {
+    final ref = _db.collection('posts').doc(postId);
+    final doc = await ref.get();
+    if (!doc.exists) {
+      throw Exception('Post not found');
+    }
+
+    final data = doc.data() ?? <String, dynamic>{};
+    final ownerId = data['author_id'] as String? ?? '';
+    if (ownerId != editorUid) {
+      throw Exception('Only post owner can edit this post');
+    }
+
+    final updates = <String, dynamic>{
+      'updated_at': FieldValue.serverTimestamp(),
+      'is_edited': true,
+    };
+
+    if (text != null) updates['text'] = text;
+    if (clearLocation) {
+      updates['location'] = FieldValue.delete();
+    } else if (location != null) {
+      updates['location'] = location;
+    }
+    if (mediaUrl != null) updates['media_url'] = mediaUrl;
+    if (thumbnailUrl != null) updates['thumbnail_url'] = thumbnailUrl;
+    if (clearSong) {
+      updates['song_url'] = FieldValue.delete();
+      updates['song_name'] = FieldValue.delete();
+      updates['artist'] = FieldValue.delete();
+    } else {
+      if (songUrl != null) updates['song_url'] = songUrl;
+      if (songName != null) updates['song_name'] = songName;
+      if (artist != null) updates['artist'] = artist;
+    }
+
+    debugPrint('[PostEdit] Updating post $postId by $editorUid with $updates');
+    await ref.update(updates);
   }
 
   Future<void> toggleLike(String postId, String uid, String username, {String collection = 'posts'}) async {
