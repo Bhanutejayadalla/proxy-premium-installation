@@ -39,7 +39,7 @@ class ChatListScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: selectedMood,
+                initialValue: selectedMood,
                 items: moodOptions
                     .map((m) => DropdownMenuItem(value: m, child: Text(m)))
                     .toList(),
@@ -48,7 +48,7 @@ class ChatListScreen extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<Duration>(
-                value: selectedDuration,
+                initialValue: selectedDuration,
                 items: durationOptions
                     .map((d) => DropdownMenuItem(
                           value: d,

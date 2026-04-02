@@ -5,11 +5,13 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../services/mesh_db_service.dart';
+import '../services/mesh_service.dart';
 
 /// Full-screen mesh chat between the current user and [targetUid].
 ///
-/// Messages are sent and received entirely over BLE (no internet required).
-/// Firebase sync happens automatically in the background via [MeshSyncService].
+/// Messages are sent and received entirely over BLE + Wi-Fi Direct (no internet
+/// required). Firebase sync happens automatically in the background via
+/// [MeshSyncService] when connectivity returns.
 class MeshChatScreen extends StatefulWidget {
   final String targetUid;
   final String targetName;
@@ -31,21 +33,23 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 
   List<MeshMessage> _messages = [];
   bool _meshActive = false;
-  // ignore: prefer_final_fields
   bool _isSending = false;
+  bool _showDebugPanel = false;
   StreamSubscription<MeshMessage>? _msgSub;
 
   @override
   void initState() {
     super.initState();
-    // Mesh is temporarily disabled — always start with mesh inactive.
     _meshActive = false;
     _load();
-    _subscribeToIncoming();
   }
 
   @override
   void dispose() {
+    if (_meshActive) {
+      final state = Provider.of<AppState>(context, listen: false);
+      state.stopMesh();
+    }
     _msgSub?.cancel();
     _textCtrl.dispose();
     _scrollCtrl.dispose();
@@ -64,7 +68,21 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   }
 
   void _subscribeToIncoming() {
-    // Mesh is temporarily disabled — no incoming stream to subscribe to.
+    _msgSub?.cancel();
+    final state = Provider.of<AppState>(context, listen: false);
+    _msgSub = state.meshService.incomingMessages.listen((msg) {
+      // Only add messages from/to this conversation
+      if (msg.senderId == widget.targetUid || msg.receiverId == widget.targetUid) {
+        if (!mounted) return;
+        setState(() => _messages.add(msg));
+        _scrollToBottom();
+      }
+    });
+  }
+
+  void _unsubscribeFromIncoming() {
+    _msgSub?.cancel();
+    _msgSub = null;
   }
 
   void _scrollToBottom() {
@@ -83,36 +101,54 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 
   Future<void> _send() async {
     final text = _textCtrl.text.trim();
-    if (text.isEmpty || _isSending) return;
+    if (text.isEmpty || _isSending || !_meshActive) return;
 
-    // Mesh is temporarily disabled — inform the user to use the regular chat.
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Mesh Chat is temporarily disabled. Please use the regular chat.',
+    final state = Provider.of<AppState>(context, listen: false);
+
+    setState(() => _isSending = true);
+    try {
+      final msg = await state.meshService.sendMessage(
+        receiverUid: widget.targetUid,
+        text: text,
+      );
+      _textCtrl.clear();
+      if (!mounted) return;
+      setState(() {
+        _messages.add(msg);
+        _isSending = false;
+      });
+      _scrollToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSending = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Send failed: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
         ),
-        backgroundColor: Colors.orange,
-        duration: Duration(seconds: 3),
-      ),
-    );
+      );
+    }
   }
 
   // ── mesh toggle ──────────────────────────────────────────────────────────────
-  // TEMPORARILY DISABLED: Mesh networking is disabled while the standalone
-  // Bluetooth connection is being stabilised. The toggle is visible but locked.
 
   Future<void> _toggleMesh(bool value) async {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Mesh Chat is temporarily disabled while Bluetooth optimisation is in progress.',
-        ),
-        backgroundColor: Colors.orange,
-        duration: Duration(seconds: 3),
-      ),
-    );
+    final state = Provider.of<AppState>(context, listen: false);
+
+    if (value) {
+      // Start mesh
+      await state.startMesh();
+      _subscribeToIncoming();
+      if (!mounted) return;
+      setState(() => _meshActive = true);
+    } else {
+      // Stop mesh
+      _unsubscribeFromIncoming();
+      await state.stopMesh();
+      if (!mounted) return;
+      setState(() => _meshActive = false);
+    }
   }
 
   // ── UI ───────────────────────────────────────────────────────────────────────
@@ -129,8 +165,13 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
           children: [
             Text(widget.targetName,
                 style: const TextStyle(fontSize: 16)),
-            const Text('Mesh Chat',
-                style: TextStyle(fontSize: 11, color: Colors.white70)),
+            Text(
+              _meshActive ? 'Mesh Chat • Active' : 'Mesh Chat',
+              style: TextStyle(
+                fontSize: 11,
+                color: _meshActive ? Colors.greenAccent : Colors.white70,
+              ),
+            ),
           ],
         ),
         backgroundColor: const Color(0xFF1A1A2E),
@@ -175,7 +216,7 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
           // ── Peer count badge ─────────────────────────────────────────────
           if (_meshActive)
             Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(right: 4),
               child: Tooltip(
                 message: 'Nearby mesh peers',
                 child: Chip(
@@ -192,6 +233,16 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
                 ),
               ),
             ),
+          // ── Debug toggle ─────────────────────────────────────────────────
+          IconButton(
+            icon: Icon(
+              Icons.bug_report,
+              size: 18,
+              color: _showDebugPanel ? Colors.amber : Colors.white38,
+            ),
+            onPressed: () => setState(() => _showDebugPanel = !_showDebugPanel),
+            tooltip: 'Toggle debug panel',
+          ),
         ],
       ),
       body: Container(
@@ -206,12 +257,17 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
           children: [
             // ── Mesh status banner ───────────────────────────────────────
             _MeshStatusBanner(
+              meshState: state.meshService.meshState,
               isMeshActive: _meshActive,
               peerCount: state.meshService.peers.length,
               bleDiscoveredCount: state.meshService.bleDiscoveredCount,
               isWifiConnected: state.meshService.isWifiDirectConnected,
               socketCount: state.meshService.socketConnectedCount,
             ),
+
+            // ── Debug panel ──────────────────────────────────────────────
+            if (_showDebugPanel && _meshActive)
+              _DebugPanel(meshService: state.meshService),
 
             // ── Message list ─────────────────────────────────────────────
             Expanded(
@@ -248,6 +304,7 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 // ── Mesh status banner ────────────────────────────────────────────────────────
 
 class _MeshStatusBanner extends StatelessWidget {
+  final MeshState meshState;
   final bool isMeshActive;
   final int peerCount;
   final int bleDiscoveredCount;
@@ -255,6 +312,7 @@ class _MeshStatusBanner extends StatelessWidget {
   final int socketCount;
 
   const _MeshStatusBanner({
+    required this.meshState,
     required this.isMeshActive,
     required this.peerCount,
     required this.bleDiscoveredCount,
@@ -286,23 +344,50 @@ class _MeshStatusBanner extends StatelessWidget {
     }
 
     String statusText;
-    if (peerCount > 0) {
-      statusText = '$peerCount peer${peerCount > 1 ? 's' : ''} connected via Wi-Fi Direct';
-    } else if (isWifiConnected && socketCount > 0) {
-      statusText = 'Wi-Fi Direct connected — handshaking…';
-    } else if (isWifiConnected) {
-      statusText = 'Wi-Fi Direct group formed — opening socket…';
-    } else if (bleDiscoveredCount > 0) {
-      statusText = '$bleDiscoveredCount device${bleDiscoveredCount > 1 ? 's' : ''} found via BLE — connecting Wi-Fi Direct…';
-    } else {
-      statusText = 'Scanning via BLE + Wi-Fi Direct…';
+    IconData statusIcon;
+    Color statusColor;
+
+    switch (meshState) {
+      case MeshState.connected:
+      case MeshState.relaying:
+        statusText = '$peerCount peer${peerCount > 1 ? 's' : ''} connected via Wi-Fi Direct';
+        statusIcon = Icons.check_circle;
+        statusColor = Colors.greenAccent;
+        break;
+      case MeshState.connecting:
+        statusText = isWifiConnected
+            ? 'Wi-Fi Direct connected — handshaking…'
+            : 'Establishing Wi-Fi Direct connection…';
+        statusIcon = Icons.sync;
+        statusColor = Colors.amber;
+        break;
+      case MeshState.discovered:
+        statusText = '$bleDiscoveredCount device${bleDiscoveredCount > 1 ? 's' : ''} found via BLE — connecting Wi-Fi Direct…';
+        statusIcon = Icons.bluetooth_searching;
+        statusColor = Colors.amber;
+        break;
+      case MeshState.scanning:
+        statusText = 'Scanning via BLE + Wi-Fi Direct…';
+        statusIcon = Icons.radar;
+        statusColor = Colors.amber;
+        break;
+      case MeshState.initializing:
+        statusText = 'Initializing mesh…';
+        statusIcon = Icons.hourglass_top;
+        statusColor = Colors.white54;
+        break;
+      case MeshState.inactive:
+        statusText = 'Mesh inactive';
+        statusIcon = Icons.power_off;
+        statusColor = Colors.white38;
+        break;
     }
 
-    final wifiColor = isWifiConnected ? Colors.greenAccent : Colors.amber;
+    final isGood = meshState == MeshState.connected || meshState == MeshState.relaying;
 
     return Container(
       width: double.infinity,
-      color: peerCount > 0
+      color: isGood
           ? Colors.green.shade900.withValues(alpha: 0.6)
           : Colors.orange.shade900.withValues(alpha: 0.5),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -311,19 +396,12 @@ class _MeshStatusBanner extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.bluetooth_searching,
-                  size: 14, color: Colors.greenAccent),
-              const SizedBox(width: 4),
-              Icon(Icons.wifi, size: 14, color: wifiColor),
+              Icon(statusIcon, size: 14, color: statusColor),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   statusText,
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: peerCount > 0
-                          ? Colors.greenAccent
-                          : Colors.amber),
+                  style: TextStyle(fontSize: 11, color: statusColor),
                 ),
               ),
             ],
@@ -341,6 +419,71 @@ class _MeshStatusBanner extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.5)),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Debug panel ───────────────────────────────────────────────────────────────
+
+class _DebugPanel extends StatelessWidget {
+  final MeshService meshService;
+
+  const _DebugPanel({required this.meshService});
+
+  @override
+  Widget build(BuildContext context) {
+    final info = meshService.statusInfo;
+    return Container(
+      width: double.infinity,
+      color: Colors.black.withValues(alpha: 0.4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '🔧 Mesh Debug',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.amber,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _debugRow('State', info.state.name),
+          _debugRow('BLE Discovered', '${info.bleDiscoveredCount}'),
+          _debugRow('Socket Connected', '${info.socketCount}'),
+          _debugRow('Identified Peers', '${info.connectedPeerCount}'),
+          _debugRow('Group Owner', info.isGroupOwner ? 'YES' : 'NO'),
+          if (info.groupOwnerAddress.isNotEmpty)
+            _debugRow('GO Address', info.groupOwnerAddress),
+          _debugRow('Max Hops', '$kMaxHops'),
+        ],
+      ),
+    );
+  }
+
+  Widget _debugRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 10, color: Colors.white54),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.white,
+              fontFamily: 'monospace',
+            ),
+          ),
         ],
       ),
     );
@@ -476,18 +619,22 @@ class _MessageBubble extends StatelessWidget {
                           borderRadius:
                               BorderRadius.circular(8),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
+                            const Icon(
                                 Icons.bluetooth,
                                 size: 9,
                                 color: Colors.greenAccent),
-                            SizedBox(width: 3),
-                            Text('mesh',
-                                style: TextStyle(
-                                    fontSize: 9,
-                                    color: Colors.greenAccent)),
+                            const SizedBox(width: 3),
+                            Text(
+                              message.hopCount > 0
+                                  ? 'mesh • ${message.hopCount} hop${message.hopCount > 1 ? "s" : ""}'
+                                  : 'mesh',
+                              style: const TextStyle(
+                                  fontSize: 9,
+                                  color: Colors.greenAccent),
+                            ),
                           ],
                         ),
                       ),

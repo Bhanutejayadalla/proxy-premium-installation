@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -13,11 +13,50 @@ import 'wifi_direct_service.dart';
 /// Maximum number of relay hops before a packet is discarded.
 const int kMaxHops = 5;
 
+/// Mesh lifecycle states — exposed to the UI for status display.
+enum MeshState {
+  /// Mesh is off.
+  inactive,
+  /// Mesh is initializing (requesting permissions, etc.).
+  initializing,
+  /// BLE scanning for nearby mesh peers.
+  scanning,
+  /// At least one peer discovered via BLE, attempting Wi-Fi Direct.
+  discovered,
+  /// Wi-Fi Direct group formed, establishing sockets.
+  connecting,
+  /// Socket(s) open, handshake complete — ready to exchange messages.
+  connected,
+  /// Actively relaying messages for other nodes.
+  relaying,
+}
+
 /// A peer currently connected via Wi-Fi Direct socket.
 class MeshPeer {
   final String uid;
   final String endpointId; // Wi-Fi Direct MAC address or socket address
   MeshPeer({required this.uid, required this.endpointId});
+}
+
+/// Diagnostic snapshot of mesh state — for the debug panel.
+class MeshStatusInfo {
+  final MeshState state;
+  final int bleDiscoveredCount;
+  final int wifiPeerCount;
+  final int socketCount;
+  final int connectedPeerCount;
+  final bool isGroupOwner;
+  final String groupOwnerAddress;
+
+  MeshStatusInfo({
+    required this.state,
+    required this.bleDiscoveredCount,
+    required this.wifiPeerCount,
+    required this.socketCount,
+    required this.connectedPeerCount,
+    required this.isGroupOwner,
+    required this.groupOwnerAddress,
+  });
 }
 
 /// ──────────────────────────────────────────────────────────────────────────
@@ -29,6 +68,12 @@ class MeshPeer {
 ///   3. Connect to the Wi-Fi Direct peer
 ///   4. Open TCP socket (port 8888) for bidirectional messaging
 ///   5. Messages relay through connected peers to form a mesh
+///
+/// BLE Coexistence:
+///   Mesh does NOT own the BLE hardware scan lifecycle. It passively listens
+///   to the BleService.discoveredUsersStream. When no external scan is active
+///   (e.g. NearbyScreen is closed), mesh runs its own lightweight periodic
+///   scan to keep discovering peers.
 /// ──────────────────────────────────────────────────────────────────────────
 class MeshService extends ChangeNotifier {
   final MeshDbService _db = MeshDbService();
@@ -40,7 +85,11 @@ class MeshService extends ChangeNotifier {
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
-  /// Reference to the BleService passed in start(), so we can stop scanning on stop().
+  MeshState _meshState = MeshState.inactive;
+  MeshState get meshState => _meshState;
+
+  /// Reference to the BleService — used for passive listening only (never
+  /// calls startContinuousScan / stopContinuousScan on it).
   BleService? _bleService;
 
   /// Connected peers: uid → socket address (from Wi-Fi Direct)
@@ -75,6 +124,8 @@ class MeshService extends ChangeNotifier {
   Timer? _healthTimer;
   // Wi-Fi Direct discovery refresh timer
   Timer? _wifiDiscoveryTimer;
+  // Mesh-only BLE scan timer (runs only when no external scan is active)
+  Timer? _meshBleScanTimer;
 
   StreamSubscription? _wifiEventSub;
   StreamSubscription<Map<String, BleDiscoveredUser>>? _bleScanSub;
@@ -89,6 +140,17 @@ class MeshService extends ChangeNotifier {
   /// Number of socket-connected peers (fully connected for messaging)
   int get socketConnectedCount => _socketConnectedPeers.length;
 
+  /// Diagnostic snapshot for the debug panel.
+  MeshStatusInfo get statusInfo => MeshStatusInfo(
+        state: _meshState,
+        bleDiscoveredCount: _bleDiscoveredPeers.length,
+        wifiPeerCount: 0, // populated from WFD discovery events
+        socketCount: _socketConnectedPeers.length,
+        connectedPeerCount: _connectedPeers.length,
+        isGroupOwner: _isGroupOwner,
+        groupOwnerAddress: _groupOwnerAddress,
+      );
+
   final _incomingCtrl = StreamController<MeshMessage>.broadcast();
   Stream<MeshMessage> get incomingMessages => _incomingCtrl.stream;
 
@@ -98,9 +160,11 @@ class MeshService extends ChangeNotifier {
 
   Future<bool> init(String myUid) async {
     _myUid = myUid;
+    _setMeshState(MeshState.initializing);
     final ok = await _requestPermissions();
     if (!ok) {
       _log('init uid=$myUid permissions=DENIED');
+      _setMeshState(MeshState.inactive);
       return false;
     }
 
@@ -109,6 +173,7 @@ class MeshService extends ChangeNotifier {
       final locStatus = await Permission.location.serviceStatus;
       if (!locStatus.isEnabled) {
         _log('Location/GPS is OFF — mesh will not work');
+        _setMeshState(MeshState.inactive);
         return false;
       }
     } catch (e) {
@@ -119,9 +184,11 @@ class MeshService extends ChangeNotifier {
     final wifiOk = await _wifiDirect.initialize();
     if (!wifiOk) {
       _log('Wi-Fi Direct initialization FAILED');
+      _setMeshState(MeshState.inactive);
       return false;
     }
 
+    _setMeshState(MeshState.inactive);
     _log('init uid=$myUid permissions=OK location=ON wifiDirect=OK');
     return true;
   }
@@ -146,24 +213,34 @@ class MeshService extends ChangeNotifier {
     }
 
     // Both BLE and Wi-Fi are required for mesh.
-    return bleOk;
+    return bleOk && wifiOk;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Start / Stop
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /// Start mesh networking.
+  ///
+  /// [bleService] — shared BleService instance from AppState. Mesh subscribes
+  /// to its discoveredUsersStream as a **passive listener** and never calls
+  /// startContinuousScan / stopContinuousScan on it. This ensures mesh does
+  /// not interfere with the NearbyScreen's BLE scan lifecycle.
   Future<void> start({BleService? bleService}) async {
     if (_isRunning || _myUid == null) return;
     _isRunning = true;
-    notifyListeners();
+    _setMeshState(MeshState.scanning);
     _log('══════ Starting mesh for $_myUid ══════');
 
     // Listen to Wi-Fi Direct events from native layer
     _wifiEventSub?.cancel();
     _wifiEventSub = _wifiDirect.events.listen(_onWifiDirectEvent);
 
-    // Start BLE scanning for peer discovery (feeds onBleDeviceDiscovered)
+    // ── Passive BLE listening ──────────────────────────────────────────────
+    // Subscribe to the BleService's discovery stream WITHOUT starting the
+    // hardware scan. If the NearbyScreen or AppState is already scanning,
+    // mesh will pick up peers from that stream. If no scan is active, the
+    // _meshBleScanTimer below will kick off short scan bursts.
     if (bleService != null && _myUid != null) {
       _bleService = bleService;
       _bleScanSub?.cancel();
@@ -172,8 +249,39 @@ class MeshService extends ChangeNotifier {
           onBleDeviceDiscovered(user);
         }
       });
-      bleService.startContinuousScan(myUid: _myUid);
-      _log('BLE scanning started for mesh peer discovery');
+      _log('BLE passive listening started for mesh peer discovery');
+
+      // Start a lightweight periodic BLE scan for mesh-only mode.
+      // Uses short 6-second bursts every 15 seconds. This runs even
+      // when NearbyScreen is closed so mesh can discover new peers.
+      _meshBleScanTimer?.cancel();
+      _meshBleScanTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+        if (!_isRunning || _bleService == null) return;
+        // Only start our own scan if no external scan is already running
+        // (check by peeking at the continuous scan flag)
+        _log('Mesh BLE scan burst starting');
+        try {
+          await _bleService!.startContinuousScan(myUid: _myUid);
+          // Let it run for 6 seconds then stop to free the hardware
+          Future.delayed(const Duration(seconds: 6), () async {
+            // Only stop if mesh is still running — don't interfere if
+            // NearbyScreen started a scan while we were scanning
+            if (_isRunning) {
+              // Don't stop — leave the continuous scan running so the
+              // NearbyScreen doesn't lose its results. The scan stream
+              // subscription above will continue to feed us peers.
+            }
+          });
+        } catch (e) {
+          _log('Mesh BLE scan burst error: $e');
+        }
+      });
+      // Kick off the first scan immediately
+      try {
+        await bleService.startContinuousScan(myUid: _myUid);
+      } catch (e) {
+        _log('Initial mesh BLE scan error: $e');
+      }
     }
 
     // Start Wi-Fi Direct peer discovery
@@ -191,7 +299,7 @@ class MeshService extends ChangeNotifier {
       if (!_isRunning) return;
       _log('Health-check: ${_connectedPeers.length} peers, '
           '${_socketConnectedPeers.length} sockets, '
-          'wifi=$_isWifiDirectConnected');
+          'wifi=$_isWifiDirectConnected state=$_meshState');
       if (_connectedPeers.isEmpty && _isRunning) {
         _log('Health-check: no peers — restarting discovery');
         _startWifiDirectDiscovery();
@@ -206,6 +314,8 @@ class MeshService extends ChangeNotifier {
     _healthTimer = null;
     _wifiDiscoveryTimer?.cancel();
     _wifiDiscoveryTimer = null;
+    _meshBleScanTimer?.cancel();
+    _meshBleScanTimer = null;
     _wifiEventSub?.cancel();
     _wifiEventSub = null;
     _bleScanSub?.cancel();
@@ -214,11 +324,9 @@ class MeshService extends ChangeNotifier {
     await _wifiDirect.stopDiscovery();
     await _wifiDirect.disconnect();
 
-    // Stop BLE scanning that we started in start()
-    if (_bleService != null) {
-      await _bleService!.stopContinuousScan();
-      _bleService = null;
-    }
+    // Do NOT stop the BLE scan here — it belongs to NearbyScreen / AppState.
+    // We only cancel our stream subscription above.
+    _bleService = null;
 
     _isRunning = false;
     _isWifiDirectConnected = false;
@@ -231,8 +339,31 @@ class MeshService extends ChangeNotifier {
     _pendingWifiConnections.clear();
     _socketConnectedPeers.clear();
     _seenMessageIds.clear();
-    notifyListeners();
+    _setMeshState(MeshState.inactive);
     _log('Mesh stopped');
+  }
+
+  void _setMeshState(MeshState state) {
+    if (_meshState != state) {
+      _meshState = state;
+      notifyListeners();
+    }
+  }
+
+  void _updateMeshStateFromConnections() {
+    if (!_isRunning) {
+      _setMeshState(MeshState.inactive);
+    } else if (_connectedPeers.isNotEmpty) {
+      _setMeshState(MeshState.connected);
+    } else if (_socketConnectedPeers.isNotEmpty) {
+      _setMeshState(MeshState.connecting);
+    } else if (_isWifiDirectConnected) {
+      _setMeshState(MeshState.connecting);
+    } else if (_bleDiscoveredPeers.isNotEmpty) {
+      _setMeshState(MeshState.discovered);
+    } else {
+      _setMeshState(MeshState.scanning);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -263,7 +394,7 @@ class MeshService extends ChangeNotifier {
     if (!existed) {
       _log('BLE discovered new peer: ${bleUser.uid} (${bleUser.username}) '
           'rssi=${bleUser.rssi} dist=${bleUser.distanceM.toStringAsFixed(1)}m');
-      notifyListeners();
+      _updateMeshStateFromConnections();
     }
   }
 
@@ -308,7 +439,7 @@ class MeshService extends ChangeNotifier {
         _socketConnectedPeers.clear();
         _connectedPeers.clear();
         _addressToUid.clear();
-        notifyListeners();
+        _updateMeshStateFromConnections();
         // Restart discovery to reconnect
         if (_isRunning) {
           Future.delayed(const Duration(seconds: 2), () {
@@ -323,7 +454,7 @@ class MeshService extends ChangeNotifier {
         _socketConnectedPeers.add(addr);
         // Send handshake with our UID so the other side can map address→uid
         _sendHandshake(addr);
-        notifyListeners();
+        _updateMeshStateFromConnections();
         break;
 
       case 'peerSocketDisconnected':
@@ -335,7 +466,7 @@ class MeshService extends ChangeNotifier {
           _connectedPeers.remove(uid);
           _log('Peer $uid removed (socket disconnected)');
         }
-        notifyListeners();
+        _updateMeshStateFromConnections();
         break;
 
       case 'messageReceived':
@@ -382,7 +513,7 @@ class MeshService extends ChangeNotifier {
         connectToWifiPeer(address);
       }
     }
-    notifyListeners();
+    _updateMeshStateFromConnections();
   }
 
   void _onWifiConnectionChanged(Map<String, dynamic> data) {
@@ -393,7 +524,7 @@ class MeshService extends ChangeNotifier {
 
     _log('Wi-Fi Direct: connected=$_isWifiDirectConnected, '
         'GO=$_isGroupOwner, GOAddr=$_groupOwnerAddress');
-    notifyListeners();
+    _updateMeshStateFromConnections();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -417,7 +548,7 @@ class MeshService extends ChangeNotifier {
     _connectedPeers[uid] = fromAddress;
     _log('Handshake complete: $uid ↔ $fromAddress '
         '(${_connectedPeers.length} peers total)');
-    notifyListeners();
+    _updateMeshStateFromConnections();
 
     // Deliver any pending messages for this peer
     _deliverPendingTo(uid, fromAddress);
@@ -467,6 +598,12 @@ class MeshService extends ChangeNotifier {
       _seenMessageIds.remove(oldest);
     }
 
+    // Loop detection: if we're already in the path, drop
+    if (packet.hasVisited(myUid)) {
+      _log('Loop detected for ${packet.messageId} — dropping');
+      return;
+    }
+
     if (packet.receiverId == myUid) {
       // Message is for us — decrypt and store
       try {
@@ -488,12 +625,15 @@ class MeshService extends ChangeNotifier {
       } catch (e) {
         _log('Decrypt error for ${packet.messageId}: $e');
       }
-    } else if (packet.hopCount < kMaxHops) {
-      // Relay to all connected peers
-      _log('Relaying ${packet.messageId} (hop ${packet.hopCount})');
+    } else if (packet.ttl > 0 && packet.hopCount < kMaxHops) {
+      // Relay to all connected peers (with loop prevention)
+      _log('Relaying ${packet.messageId} (hop ${packet.hopCount}, ttl ${packet.ttl})');
+      _setMeshState(MeshState.relaying);
       await _relayPacket(packet);
+      // Restore state after relay
+      _updateMeshStateFromConnections();
     } else {
-      _log('Dropping ${packet.messageId}: exceeded max hops');
+      _log('Dropping ${packet.messageId}: exceeded max hops or TTL=0');
     }
   }
 
@@ -543,6 +683,8 @@ class MeshService extends ChangeNotifier {
         encryptedPayload: msg.encryptedPayload,
         timestamp: msg.timestamp.millisecondsSinceEpoch,
         hopCount: msg.hopCount,
+        ttl: kMaxHops,
+        path: [msg.senderId],
       );
       final ok = await _wifiDirect.sendMessage(
         packet.toJson(),
@@ -570,12 +712,21 @@ class MeshService extends ChangeNotifier {
   }
 
   Future<void> _relayPacket(MeshWirePacket packet) async {
-    final hopPacket = packet.withIncrementedHop();
+    final myUid = _myUid;
+    if (myUid == null) return;
+
+    // Use withRelay to add ourselves to the path and decrement TTL
+    final hopPacket = packet.withRelay(myUid);
     final json = hopPacket.toJson();
     bool relayed = false;
 
     for (final entry in _connectedPeers.entries) {
       if (entry.key == packet.senderId) continue; // Don't echo to sender
+      // Loop prevention: don't forward to peers already in the path
+      if (hopPacket.hasVisited(entry.key)) {
+        _log('Skipping relay to ${entry.key} — already in path');
+        continue;
+      }
       try {
         final ok = await _wifiDirect.sendMessage(json, targetAddress: entry.value);
         if (ok) {

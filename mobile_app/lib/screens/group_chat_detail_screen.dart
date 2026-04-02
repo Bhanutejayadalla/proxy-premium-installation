@@ -287,6 +287,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
               final isAdmin = creatorUid == myUid || admins.contains(myUid);
 
               if (value == 'clear') {
+                if (!context.mounted) return;
                 final confirmed = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
@@ -305,6 +306,7 @@ class _GroupChatDetailScreenState extends State<GroupChatDetailScreen> {
                   await state.clearGroupChat(widget.groupId);
                 }
               } else if (value == 'delete') {
+                if (!context.mounted) return;
                 final confirmed = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(

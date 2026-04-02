@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../app_state.dart';
 import '../models.dart';
 import '../services/music_service.dart';
 import '../widgets/audio_player_widget.dart';
 
 /// Song Library: Default songs + User uploaded songs with CRUD
 class SongListScreen extends StatefulWidget {
-  const SongListScreen({Key? key}) : super(key: key);
+  const SongListScreen({super.key});
 
   @override
   State<SongListScreen> createState() => _SongListScreenState();
@@ -18,7 +16,6 @@ class _SongListScreenState extends State<SongListScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _isUploading = false;
   String? _uploadError;
-  List<Song> _filteredSongs = [];
 
   @override
   void initState() {
@@ -109,7 +106,7 @@ class _SongListScreenState extends State<SongListScreen> {
                 );
 
                 _loadSongs();
-                if (mounted) {
+                if (context.mounted) {
                   Navigator.pop(context, true);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Song uploaded successfully!')),
@@ -192,7 +189,7 @@ class _SongListScreenState extends State<SongListScreen> {
                 );
 
                 _loadSongs();
-                if (mounted) {
+                if (context.mounted) {
                   Navigator.pop(context, true);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Song updated successfully!')),
@@ -336,8 +333,7 @@ class _SongListScreenState extends State<SongListScreen> {
                               ),
                             ),
                             ...defaultSongs
-                                .map((song) => _buildSongCard(song))
-                                .toList(),
+                                .map((song) => _buildSongCard(song)),
                             const SizedBox(height: 16),
                           ],
                           // USER SONGS SECTION
@@ -354,8 +350,7 @@ class _SongListScreenState extends State<SongListScreen> {
                             ),
                             ...userSongs
                                 .map((song) => _buildSongCard(song,
-                                    isUserSong: true))
-                                .toList(),
+                                    isUserSong: true)),
                           ],
                         ],
                       ),
@@ -373,10 +368,6 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   Widget _buildSongCard(Song song, {bool isUserSong = false}) {
-    final appState = context.read<AppState>();
-    final currentUid = appState.currentUser?.uid;
-    final isOwner = currentUid != null && song.isOwnedBy(currentUid);
-
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(

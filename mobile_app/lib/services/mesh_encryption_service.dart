@@ -87,6 +87,8 @@ class MeshWirePacket {
   final String encryptedPayload; // base64 from MeshEncryptionService
   final int timestamp;           // epoch ms
   final int hopCount;
+  final int ttl;                 // time-to-live: decrements each relay
+  final List<String> path;       // UIDs of relay nodes (loop prevention)
 
   MeshWirePacket({
     required this.messageId,
@@ -95,9 +97,14 @@ class MeshWirePacket {
     required this.encryptedPayload,
     required this.timestamp,
     this.hopCount = 0,
+    this.ttl = 5,
+    this.path = const [],
   });
 
-  // Compact JSON serialization for BLE transport
+  /// Check if a UID is already in the relay path (loop detection).
+  bool hasVisited(String uid) => path.contains(uid);
+
+  // Compact JSON serialization for Wi-Fi Direct transport
   String toJson() => jsonEncode({
         'mid': messageId,
         'sid': senderId,
@@ -105,6 +112,8 @@ class MeshWirePacket {
         'pay': encryptedPayload,
         'ts': timestamp,
         'hop': hopCount,
+        'ttl': ttl,
+        'path': path,
       });
 
   factory MeshWirePacket.fromJson(String raw) {
@@ -116,9 +125,25 @@ class MeshWirePacket {
       encryptedPayload: m['pay'] as String,
       timestamp: (m['ts'] as num).toInt(),
       hopCount: (m['hop'] as num?)?.toInt() ?? 0,
+      ttl: (m['ttl'] as num?)?.toInt() ?? 5,
+      path: (m['path'] as List?)?.cast<String>() ?? const [],
     );
   }
 
+  /// Create a new packet with hop incremented, TTL decremented, and
+  /// [relayUid] appended to the path.
+  MeshWirePacket withRelay(String relayUid) => MeshWirePacket(
+        messageId: messageId,
+        senderId: senderId,
+        receiverId: receiverId,
+        encryptedPayload: encryptedPayload,
+        timestamp: timestamp,
+        hopCount: hopCount + 1,
+        ttl: ttl - 1,
+        path: [...path, relayUid],
+      );
+
+  /// Legacy helper — increments hop only (kept for compatibility).
   MeshWirePacket withIncrementedHop() => MeshWirePacket(
         messageId: messageId,
         senderId: senderId,
@@ -126,5 +151,7 @@ class MeshWirePacket {
         encryptedPayload: encryptedPayload,
         timestamp: timestamp,
         hopCount: hopCount + 1,
+        ttl: ttl - 1,
+        path: path,
       );
 }

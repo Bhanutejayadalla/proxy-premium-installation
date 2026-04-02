@@ -4,10 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models.dart';
 import 'cloudinary_service.dart';
+import 'chat_encryption_service.dart';
 
 class FirebaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final CloudinaryService _storage = CloudinaryService();
+  final ChatEncryptionService _chatEncryption = ChatEncryptionService();
 
   // ─────────────────────────────────────────────
   //  USER OPERATIONS
@@ -389,8 +391,53 @@ class FirebaseService {
         .collection('messages')
         .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) => snap.docs.map((d) {
+              final data = d.data();
+              final senderUid = data['sender_uid'] as String?;
+              final receiverUid = data['receiver_uid'] as String?;
+              final encryptedPayload = data['encrypted_payload'] as String?;
+              final encryptedReplyPreview =
+                  data['encrypted_reply_preview'] as String?;
+
+              String resolvedText = (data['text'] as String?) ?? '';
+              if (encryptedPayload != null &&
+                  senderUid != null &&
+                  receiverUid != null &&
+                  encryptedPayload.isNotEmpty) {
+                try {
+                  resolvedText = _chatEncryption.decryptDmText(
+                    encryptedPayload,
+                    senderUid,
+                    receiverUid,
+                  );
+                } catch (_) {
+                  resolvedText = '[decrypt error]';
+                }
+              }
+
+              String? resolvedReplyPreview = data['reply_preview'] as String?;
+              if (encryptedReplyPreview != null &&
+                  senderUid != null &&
+                  receiverUid != null &&
+                  encryptedReplyPreview.isNotEmpty) {
+                try {
+                  resolvedReplyPreview = _chatEncryption.decryptDmText(
+                    encryptedReplyPreview,
+                    senderUid,
+                    receiverUid,
+                  );
+                } catch (_) {
+                  resolvedReplyPreview = '[decrypt error]';
+                }
+              }
+
+              return {
+                'id': d.id,
+                ...data,
+                'text': resolvedText,
+                'reply_preview': resolvedReplyPreview,
+              };
+            }).toList());
   }
 
   Stream<Map<String, dynamic>?> getChatMetaStream(String chatId) {
@@ -412,9 +459,25 @@ class FirebaseService {
     String? replyPreview,
     String mode = 'formal',
   }) async {
+    final hasText = text != null && text.trim().isNotEmpty;
+    final safeText = text?.trim() ?? '';
+    final encryptedPayload = hasText
+        ? _chatEncryption.encryptDmText(safeText, senderUid, receiverUid)
+        : null;
+    final encryptedReplyPreview =
+        (replyPreview != null && replyPreview.trim().isNotEmpty)
+            ? _chatEncryption.encryptDmText(
+                replyPreview.trim(),
+                senderUid,
+                receiverUid,
+              )
+            : null;
+
     await _db.collection('chats').doc(chatId).set({
       'participants': [senderUid, receiverUid],
-      'last_message': text ?? (fileType != null ? 'Sent a \$fileType' : ''),
+      'last_message': hasText
+          ? 'Encrypted message'
+          : (fileType != null ? 'Sent a \$fileType' : ''),
       'last_timestamp': FieldValue.serverTimestamp(),
       'seen_by_uid': {
         senderUid: FieldValue.serverTimestamp(),
@@ -428,12 +491,15 @@ class FirebaseService {
         .collection('messages')
         .add({
       'sender_uid': senderUid,
+      'receiver_uid': receiverUid,
       'sender_username': senderUsername,
-      'text': text ?? '',
+      'text': hasText ? '' : '',
+      'encrypted_payload': encryptedPayload,
       'file_url': fileUrl,
       'file_type': fileType,
       'reply_to_id': replyToId,
-      'reply_preview': replyPreview,
+      'reply_preview': encryptedReplyPreview == null ? replyPreview : '',
+      'encrypted_reply_preview': encryptedReplyPreview,
       'reactions': <String, dynamic>{},
       'is_deleted': false,
       'deleted_for': <String>[],
@@ -442,13 +508,13 @@ class FirebaseService {
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    if (text != null && text.isNotEmpty) {
+    if (hasText) {
       await createNotification(
         userId: receiverUid,
         fromUid: senderUid,
         fromUsername: senderUsername,
         type: 'message',
-        text: text,
+        text: 'sent you a message',
       );
     }
   }
@@ -512,15 +578,36 @@ class FirebaseService {
     required String messageId,
     required String newText,
   }) async {
+    final msgRef = _db
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId);
+    final msgDoc = await msgRef.get();
+    final data = msgDoc.data() ?? <String, dynamic>{};
+    final senderUid = data['sender_uid'] as String?;
+    final receiverUid = data['receiver_uid'] as String?;
+    final safeText = newText.trim();
+    final encryptedPayload =
+        (senderUid != null && receiverUid != null && safeText.isNotEmpty)
+            ? _chatEncryption.encryptDmText(safeText, senderUid, receiverUid)
+            : null;
+
     await _db
         .collection('chats')
         .doc(chatId)
         .collection('messages')
         .doc(messageId)
         .update({
-      'text': newText,
+      'text': encryptedPayload == null ? safeText : '',
+      'encrypted_payload': encryptedPayload,
       'edited_at': FieldValue.serverTimestamp(),
     });
+
+    await _db.collection('chats').doc(chatId).set({
+      'last_message': safeText.isNotEmpty ? 'Encrypted message' : '',
+      'last_timestamp': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> toggleChatReaction({
@@ -570,9 +657,11 @@ class FirebaseService {
       'deleted_for_everyone': true,
       'deleted_at': FieldValue.serverTimestamp(),
       'text': '',
+      'encrypted_payload': null,
       'file_url': null,
       'file_type': null,
       'reply_preview': null,
+      'encrypted_reply_preview': null,
     }, SetOptions(merge: true));
   }
 
@@ -1032,8 +1121,19 @@ class FirebaseService {
     String? replyToId,
     String? replyPreview,
   }) async {
+    final hasText = text != null && text.trim().isNotEmpty;
+    final safeText = text?.trim() ?? '';
+    final encryptedPayload =
+        hasText ? _chatEncryption.encryptGroupText(safeText, groupId) : null;
+    final encryptedReplyPreview =
+        (replyPreview != null && replyPreview.trim().isNotEmpty)
+            ? _chatEncryption.encryptGroupText(replyPreview.trim(), groupId)
+            : null;
+
     await _db.collection('group_chats').doc(groupId).update({
-      'last_message': text ?? (fileType != null ? 'Sent a $fileType' : ''),
+      'last_message': hasText
+          ? 'Encrypted message'
+          : (fileType != null ? 'Sent a $fileType' : ''),
       'last_timestamp': FieldValue.serverTimestamp(),
     });
 
@@ -1044,11 +1144,13 @@ class FirebaseService {
         .add({
       'sender_uid': senderUid,
       'sender_username': senderUsername,
-      'text': text ?? '',
+      'text': hasText ? '' : '',
+      'encrypted_payload': encryptedPayload,
       'file_url': fileUrl,
       'file_type': fileType,
       'reply_to_id': replyToId,
-      'reply_preview': replyPreview,
+      'reply_preview': encryptedReplyPreview == null ? replyPreview : '',
+      'encrypted_reply_preview': encryptedReplyPreview,
       'reactions': <String, dynamic>{},
       'is_deleted': false,
       'deleted_for': <String>[],
@@ -1094,8 +1196,42 @@ class FirebaseService {
         .collection('messages')
         .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) => snap.docs.map((d) {
+              final data = d.data();
+              final encryptedPayload = data['encrypted_payload'] as String?;
+              final encryptedReplyPreview =
+                  data['encrypted_reply_preview'] as String?;
+
+              String resolvedText = (data['text'] as String?) ?? '';
+              if (encryptedPayload != null && encryptedPayload.isNotEmpty) {
+                try {
+                  resolvedText =
+                      _chatEncryption.decryptGroupText(encryptedPayload, groupId);
+                } catch (_) {
+                  resolvedText = '[decrypt error]';
+                }
+              }
+
+              String? resolvedReplyPreview = data['reply_preview'] as String?;
+              if (encryptedReplyPreview != null &&
+                  encryptedReplyPreview.isNotEmpty) {
+                try {
+                  resolvedReplyPreview = _chatEncryption.decryptGroupText(
+                    encryptedReplyPreview,
+                    groupId,
+                  );
+                } catch (_) {
+                  resolvedReplyPreview = '[decrypt error]';
+                }
+              }
+
+              return {
+                'id': d.id,
+                ...data,
+                'text': resolvedText,
+                'reply_preview': resolvedReplyPreview,
+              };
+            }).toList());
   }
 
   /// Add members to an existing group chat.
@@ -1151,14 +1287,25 @@ class FirebaseService {
     required String messageId,
     required String newText,
   }) async {
+    final safeText = newText.trim();
+    final encryptedPayload = safeText.isNotEmpty
+        ? _chatEncryption.encryptGroupText(safeText, groupId)
+        : null;
+
     await _db
         .collection('group_chats')
         .doc(groupId)
         .collection('messages')
         .doc(messageId)
         .update({
-      'text': newText,
+      'text': encryptedPayload == null ? safeText : '',
+      'encrypted_payload': encryptedPayload,
       'edited_at': FieldValue.serverTimestamp(),
+    });
+
+    await _db.collection('group_chats').doc(groupId).update({
+      'last_message': safeText.isNotEmpty ? 'Encrypted message' : '',
+      'last_timestamp': FieldValue.serverTimestamp(),
     });
   }
 
@@ -1209,9 +1356,11 @@ class FirebaseService {
       'deleted_for_everyone': true,
       'deleted_at': FieldValue.serverTimestamp(),
       'text': '',
+      'encrypted_payload': null,
       'file_url': null,
       'file_type': null,
       'reply_preview': null,
+      'encrypted_reply_preview': null,
     }, SetOptions(merge: true));
   }
 

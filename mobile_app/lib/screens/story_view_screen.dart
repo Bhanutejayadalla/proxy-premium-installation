@@ -30,7 +30,6 @@ class _StoryViewScreenState extends State<StoryViewScreen> {
   double _segmentProgress = 0.0;
   Timer? _timer;
   bool _isPaused = false;
-  bool _showMusic = false;
   final TextEditingController _replyCtrl = TextEditingController();
 
   Map<String, dynamic> get _current => _stories[_currentIndex];

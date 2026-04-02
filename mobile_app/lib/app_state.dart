@@ -26,9 +26,7 @@ class AppState extends ChangeNotifier {
   final UserCacheService userCache = UserCacheService();
 
   /// Mesh networking — BLE-based offline chat.
-  /// MeshSyncService is disabled while mesh is offline; kept for future re-enable.
   final MeshService meshService = MeshService();
-  // ignore: unused_field
   final MeshSyncService _meshSync = MeshSyncService();
 
   AppUser? currentUser;
@@ -207,13 +205,17 @@ class AppState extends ChangeNotifier {
   void _startListeners() {
     _stopListeners();
 
-    // ── Mesh networking (TEMPORARILY DISABLED — BLE-only mode) ──────────────
-    // Mesh requires Wi-Fi Direct + BLE simultaneously and conflicts with the
-    // standalone BLE scanner. Re-enable once mesh is fully decoupled from BLE.
-    // if (currentUser != null) {
-    //   meshService.init(currentUser!.uid);
-    //   _meshSync.startWatching(currentUser!.uid);
-    // }
+    // ── Mesh networking — init only (start/stop controlled by mesh chat UI) ──
+    if (currentUser != null) {
+      meshService.init(currentUser!.uid).then((ok) {
+        if (ok) {
+          _meshSync.startWatching(currentUser!.uid);
+          debugPrint('[Mesh] Initialized for ${currentUser!.uid}');
+        } else {
+          debugPrint('[Mesh] Init failed — permissions or hardware issue');
+        }
+      });
+    }
 
     // Track accepted connections — needed for visibility filtering
     if (currentUser != null) {
@@ -380,9 +382,9 @@ class AppState extends ChangeNotifier {
     _receivedRequestsSub?.cancel();
     _profileSub?.cancel();
     _notifSub?.cancel();
-    // Mesh temporarily disabled — do not call meshService.stop() here.
-    // meshService.stop();
-    // _meshSync.stopWatching();
+    // Stop mesh networking if running
+    meshService.stop();
+    _meshSync.stopWatching();
   }
 
   /// Manual refresh (pull-to-refresh) — re-subscribe.
@@ -717,10 +719,39 @@ class AppState extends ChangeNotifier {
   Future<void> stopContinuousBleScan() async {
     _continuousBleSub?.cancel();
     _continuousBleSub = null;
-    // Always stop the hardware BLE scan to free resources.
-    // (Previously guarded by meshService.isRunning, but mesh is disabled.)
-    await ble.stopContinuousScan();
-    debugPrint('[BLE] Continuous scan stopped');
+    // Only stop the hardware BLE scan if mesh is NOT running.
+    // When mesh is active, it needs the BLE scan to keep discovering peers.
+    if (!meshService.isRunning) {
+      await ble.stopContinuousScan();
+      debugPrint('[BLE] Continuous scan stopped');
+    } else {
+      debugPrint('[BLE] Proximity UI detached but mesh is running — BLE scan stays active');
+    }
+  }
+
+  // ── Mesh Chat Control ─────────────────────────────────────────────────
+
+  /// Start mesh networking (called from mesh chat UI toggle).
+  /// Uses the shared BleService so mesh passively listens to BLE discoveries
+  /// without conflicting with the NearbyScreen's scan.
+  Future<void> startMesh() async {
+    if (currentUser == null) return;
+    // Ensure init was called (idempotent)
+    final ok = await meshService.init(currentUser!.uid);
+    if (!ok) {
+      debugPrint('[Mesh] Cannot start — init failed');
+      return;
+    }
+    await meshService.start(bleService: ble);
+    debugPrint('[Mesh] Started for ${currentUser!.uid}');
+    notifyListeners();
+  }
+
+  /// Stop mesh networking (called from mesh chat UI toggle).
+  Future<void> stopMesh() async {
+    await meshService.stop();
+    debugPrint('[Mesh] Stopped');
+    notifyListeners();
   }
 
   /// Sync discoverable users to local cache (call when online).

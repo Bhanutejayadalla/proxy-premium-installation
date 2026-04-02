@@ -56,9 +56,13 @@
 - **Direct Messages (DM)**: One-on-one messaging with image sharing
 - **Group Chat**: Create group conversations with 2+ connections
 - **Mode-Specific Chat**: Pro chats stay in Pro, Social chats stay in Social
+- **Encrypted Cloud Chat (NEW)**: DM and Group message text + reply previews are encrypted before Firestore write and decrypted on-device when read
+- **Encrypted-at-Rest Metadata Safety**: Chat list preview stores generic text (`Encrypted message`) instead of plaintext message content
 - **Delete/Clear DM Chat**: Delete entire conversation or clear all messages
 - **Delete/Clear Group Chat**: Delete group or clear all messages; long-press to delete individual messages
 - **Story Replies**: Tap to reply → opens DM
+
+> **Security note**: Cloud chat encryption currently uses deterministic per-conversation key derivation on the client. This keeps plaintext out of Firestore, but it is not yet a full Signal-style forward-secret E2E implementation.
 
 ### 🔵 Mesh Chat (New in v3.1 — Fully Offline)
 - **Zero Internet Required**: Send and receive messages using only Bluetooth — works in tunnels, rural areas, or flight mode
@@ -163,6 +167,7 @@ All Campus Hub features are accessible from the **Hub** icon (grid icon) in the 
 | **BLE Proximity Discovery** | flutter_blue_plus + native Kotlin BLE advertiser |
 | **Mesh Chat Transport** | Native Android `WifiP2pManager` (Wi-Fi Direct) + raw TCP sockets on port 8888 — implemented in `WifiDirectPlugin.kt` via Flutter MethodChannel/EventChannel |
 | **Mesh Encryption** | encrypt 5.0.3 — AES-256-CBC, SHA-256 key derivation (crypto 3.0.3) per conversation pair |
+| **Cloud Chat Encryption** | Client-side AES-256-CBC for DM + Group text/reply previews (stored as encrypted payloads in Firestore) |
 | **Mesh Local Storage** | sqflite 2.3.0 — SQLite database (mesh_messages.db) |
 | **Mesh Cloud Sync** | connectivity_plus 6.0.3 + Firestore (`mesh_messages` collection — stores encrypted payload, never plaintext) |
 | **GPS/Maps** | geolocator + flutter_map (OpenStreetMap) + OSRM routing |
@@ -519,6 +524,7 @@ This repo uses its own Firebase project and Cloudinary account. To fork and run 
 
 | Version | Date | Highlights |
 |---|---|---|
+| **3.2.0 Premium** | March 2026 | Added cloud chat encryption for DM and Group chats (message text + reply preview encrypted before Firestore write, decrypted on-device on read) |
 | **3.0.1 Premium** | July 2025 | Fixed Skill Exchange, Community Posts, Events filtering, Resource filtering (missing Firestore indexes); full feature audit |
 | **3.1.1 Premium** | March 2026 | Fix: BLE scan lifecycle — NearbyScreen no longer kills mesh BLE scan; mesh properly cleans up BLE on stop; removed duplicate BLE→mesh subscription that caused double-processing |
 | **3.1 Premium** | March 2026 | Mesh Chat (offline P2P via native WifiP2pManager / Wi-Fi Direct + TCP sockets, AES-256-CBC + SHA-256 encryption, SQLite store, multi-hop relay, Firebase sync — encrypted payload only) · Improved typing bar UX |

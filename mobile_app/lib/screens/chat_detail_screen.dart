@@ -137,7 +137,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 Text(widget.targetUser),
                 if (hasMood)
                   Text(
-                    '${other!.moodStatus} until ${DateFormat('h:mm a').format(other.moodExpiresAt!.toLocal())}',
+                    '${other.moodStatus} until ${DateFormat('h:mm a').format(other.moodExpiresAt!.toLocal())}',
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
               ],
