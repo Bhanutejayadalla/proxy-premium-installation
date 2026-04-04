@@ -240,6 +240,8 @@ class AppState extends ChangeNotifier {
         if (ok) {
           _connectionManagerInitialized = true;
           _connectionManager!.startDiscovery();
+          // Notify meshService about ConnectionManager for transport selection
+          meshService.setConnectionManager(_connectionManager!);
           debugPrint('[ConnectionManager] Initialized and discovery started for ${currentUser!.uid}');
         } else {
           debugPrint('[ConnectionManager] Initialization failed');

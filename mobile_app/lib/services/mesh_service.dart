@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
 import '../ble_service.dart';
 import '../models.dart';
+import 'connection_manager.dart';
 import 'mesh_db_service.dart';
 import 'mesh_encryption_service.dart';
 import 'wifi_direct_service.dart';
@@ -103,6 +104,10 @@ class MeshService extends ChangeNotifier {
   /// Reference to the BleService — used for passive listening only (never
   /// calls startContinuousScan / stopContinuousScan on it).
   BleService? _bleService;
+
+  /// Reference to the ConnectionManager for peer discovery and transport selection.
+  /// Set by AppState after initialization; used for BLE fallback and Wi-Fi Direct selection.
+  ConnectionManager? _connectionManager;
 
   /// Connected peers: uid → socket address (from Wi-Fi Direct)
   final Map<String, String> _connectedPeers = {};
@@ -395,6 +400,13 @@ class MeshService extends ChangeNotifier {
     _seenMessageIds.clear();
     _setMeshState(MeshState.inactive);
     _log('Mesh stopped');
+  }
+
+  /// Set the ConnectionManager reference for peer discovery and transport selection.
+  /// Called by AppState during initialization.
+  void setConnectionManager(ConnectionManager manager) {
+    _connectionManager = manager;
+    _log('ConnectionManager reference set');
   }
 
   void _setMeshState(MeshState state) {
@@ -740,9 +752,10 @@ class MeshService extends ChangeNotifier {
     msg.encryptedPayload = _crypto.encrypt(text, myUid, receiverUid);
     await _db.insertMessage(msg);
 
-    final peerAddress = _connectedPeers[receiverUid];
+    // ── Try mesh relay first (if mesh is active) ───────────────────────────
+    var peerAddress = _connectedPeers[receiverUid];
     if (peerAddress != null) {
-      // Direct delivery — select optimal transport (Wi-Fi Direct preferred)
+      // Direct delivery via mesh relay — select optimal transport (Wi-Fi Direct preferred)
       final transport = _selectTransport(msg, isDirectDelivery: true, receiverUid: receiverUid)
           ?? MeshTransport.wifiDirect; // Fall back to Wi-Fi if both available
       msg.transport = transport.name;
@@ -750,28 +763,63 @@ class MeshService extends ChangeNotifier {
       if (ok) {
         msg.deliveryStatus = MeshDeliveryStatus.delivered;
         await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
-        _log('Message sent directly to $receiverUid (transport: ${transport.name})');
+        _log('Message sent via mesh relay to $receiverUid (transport: ${transport.name})');
+        notifyListeners();
+        return msg;
       }
-    } else {
-      // Receiver not directly connected — try BLE fallback first, else broadcast relay
-      final transport = _selectTransport(msg, isDirectDelivery: false, receiverUid: receiverUid);
-      if (transport == MeshTransport.ble) {
+    }
+
+    // ── Try ConnectionManager for direct connection ─────────────────────────
+    if (_connectionManager != null) {
+      final cmPeer = _connectionManager!.getPeer(receiverUid);
+      if (cmPeer != null && cmPeer.isDirectlyConnected) {
+        // Receiver is connected via Wi-Fi Direct from ConnectionManager
+        final wifiAddr = _connectionManager!.getWifiDirectAddress(receiverUid);
+        if (wifiAddr != null) {
+          msg.transport = MeshTransport.wifiDirect.name;
+          final ok = await _sendToAddress(wifiAddr, msg, transport: MeshTransport.wifiDirect);
+          if (ok) {
+            msg.deliveryStatus = MeshDeliveryStatus.delivered;
+            await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
+            _log('Message sent directly via ConnectionManager Wi-Fi to $receiverUid');
+            notifyListeners();
+            return msg;
+          }
+        }
+      }
+
+      // Try BLE via ConnectionManager (for small messages)
+      if (text.length <= kMaxBleMessageLength) {
         msg.transport = MeshTransport.ble.name;
-        // Try BLE broadcast to any connected BLE central (acts as relay)
         final bleOk = await _broadcastViaBlE(msg);
         if (bleOk) {
-          msg.deliveryStatus = MeshDeliveryStatus.relayed;
-          await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
-          _log('Message sent via BLE relay (will be forwarded to $receiverUid)');
-        } else {
-          msg.transport = MeshTransport.wifiDirect.name;
-          await _broadcastRelay(msg);
+          msg.deliveryStatus = MeshDeliveryStatus.delivered;
+          await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
+          _log('Message sent directly via BLE to $receiverUid (ConnectionManager)');
+          notifyListeners();
+          return msg;
         }
+      }
+    }
+
+    // ── Receiver not directly connected — try relay or BLE broadcast ───────
+    final transport = _selectTransport(msg, isDirectDelivery: false, receiverUid: receiverUid);
+    if (transport == MeshTransport.ble) {
+      msg.transport = MeshTransport.ble.name;
+      // Try BLE broadcast to any connected BLE central (acts as relay)
+      final bleOk = await _broadcastViaBlE(msg);
+      if (bleOk) {
+        msg.deliveryStatus = MeshDeliveryStatus.relayed;
+        await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
+        _log('Message sent via BLE relay (will be forwarded to $receiverUid)');
       } else {
         msg.transport = MeshTransport.wifiDirect.name;
-        _log('Receiver $receiverUid not directly connected — broadcasting relay');
         await _broadcastRelay(msg);
       }
+    } else {
+      msg.transport = MeshTransport.wifiDirect.name;
+      _log('Receiver $receiverUid not directly connected — broadcasting relay');
+      await _broadcastRelay(msg);
     }
     notifyListeners();
     return msg;
