@@ -143,28 +143,59 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   List<_MeshRecipient> _buildRecipients(AppState state, String myUid) {
     final recipients = <String, _MeshRecipient>{};
 
-    for (final entry in state.meshService.bleDiscoveredPeers.entries) {
-      final user = entry.value;
-      recipients[user.uid] = _MeshRecipient(
-        uid: user.uid,
-        name: user.username.isNotEmpty ? user.username : _shortName(user.uid),
-        statusLabel: state.meshService.connectedPeerEndpoints.containsKey(user.uid)
+    // ── Check ConnectionManager for always-on peer state ──────────────────────
+    if (state._connectionManagerInitialized && state._connectionManager != null) {
+      for (final cmPeer in state._connectionManager!.peers.values) {
+        final stateLabel = cmPeer.state == PeerConnectionState.connected
             ? 'connected'
-            : (state.meshService.meshState == MeshState.connecting ||
-                    state.meshService.meshState == MeshState.discovered)
+            : cmPeer.state == PeerConnectionState.connecting
                 ? 'connecting'
-                : 'available',
-        rssi: user.rssi,
-        distanceM: user.distanceM,
-        sourceLabel: 'BLE',
-        isConnected: state.meshService.connectedPeerEndpoints.containsKey(user.uid),
-      );
+                : cmPeer.state == PeerConnectionState.failed
+                    ? 'failed'
+                    : 'available';
+        final sourceLabel = cmPeer.preferredTransport == 'wifi' ? 'Wi-Fi Direct' : 'BLE';
+        recipients[cmPeer.uid] = _MeshRecipient(
+          uid: cmPeer.uid,
+          name: cmPeer.name,
+          statusLabel: stateLabel,
+          rssi: cmPeer.rssi,
+          distanceM: cmPeer.distanceM,
+          sourceLabel: sourceLabel,
+          isConnected: cmPeer.state == PeerConnectionState.connected,
+        );
+      }
     }
 
+    // ── Mesh relay peers (override if more connected) ────────────────────────
+    for (final entry in state.meshService.bleDiscoveredPeers.entries) {
+      final user = entry.value;
+      final existing = recipients[user.uid];
+      final isMeshConnected = state.meshService.connectedPeerEndpoints.containsKey(user.uid);
+      
+      // Prefer direct connection (Wi-Fi) over BLE discovery state
+      if (existing == null || !existing.isConnected && isMeshConnected) {
+        recipients[user.uid] = _MeshRecipient(
+          uid: user.uid,
+          name: user.username.isNotEmpty ? user.username : _shortName(user.uid),
+          statusLabel: isMeshConnected
+              ? 'connected'
+              : (state.meshService.meshState == MeshState.connecting ||
+                      state.meshService.meshState == MeshState.discovered)
+                  ? 'connecting'
+                  : 'available',
+          rssi: user.rssi,
+          distanceM: user.distanceM,
+          sourceLabel: 'BLE',
+          isConnected: isMeshConnected,
+        );
+      }
+    }
+
+    // ── Mesh Wi-Fi Direct peers ────────────────────────────────────────────────
     for (final peer in state.meshService.peers) {
-      recipients.putIfAbsent(
-        peer.uid,
-        () => _MeshRecipient(
+      final existing = recipients[peer.uid];
+      if (existing == null || !existing.isConnected) {
+        recipients[peer.uid] = _MeshRecipient(
           uid: peer.uid,
           name: _shortName(peer.uid),
           statusLabel: 'connected',
@@ -172,8 +203,8 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
           distanceM: null,
           sourceLabel: 'Wi-Fi Direct',
           isConnected: true,
-        ),
-      );
+        );
+      }
     }
 
     if (_selectedRecipientUid != null &&
@@ -315,7 +346,8 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
         break;
       }
     }
-    final canSend = _meshActive && _selectedRecipientUid != null;
+    // Allow send if device selected (mesh relay OR direct connection available)
+    final canSend = _selectedRecipientUid != null;
     final appBarTitle = _selectedRecipientName ?? widget.targetName;
 
     return Scaffold(
