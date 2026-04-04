@@ -15,9 +15,9 @@ enum PeerConnectionState {
 /// Represents a discovered peer with connection state and transport info.
 class ManagedPeer {
   final String uid;
-  final String name;
-  final int? rssi;               // BLE signal strength
-  final double? distanceM;       // Estimated distance
+  String name;
+  int? rssi;               // BLE signal strength
+  double? distanceM;       // Estimated distance
   PeerConnectionState state;     // Current connection state
   String? preferredTransport;    // 'wifi' or 'ble'
   String? wifiDirectAddress;     // MAC address if connected via Wi-Fi Direct
@@ -38,6 +38,14 @@ class ManagedPeer {
     state == PeerConnectionState.connected;
   bool get isDirectlyConnected =>
     state == PeerConnectionState.connected && wifiDirectAddress != null;
+}
+
+enum WifiDirectConnectionState {
+  idle,
+  discovering,
+  connecting,
+  connected,
+  failed,
 }
 
 /// ConnectionManager — Handles peer discovery, connection attempts, and transport selection.
@@ -72,17 +80,22 @@ class ConnectionManager extends ChangeNotifier {
 
   // Connection tracking
   final Map<String, String> _wifiAddressToUid = {}; // MAC → UID mapping
-  DateTime? _lastWifiConnectionAttempt;
+
+  WifiDirectConnectionState _wifiState = WifiDirectConnectionState.idle;
+  WifiDirectConnectionState get wifiState => _wifiState;
 
   // State streams
   final _peerStateCtrl = StreamController<ManagedPeer>.broadcast();
   final _connectionFailedCtrl = StreamController<String>.broadcast();
+  final _wifiStateCtrl = StreamController<WifiDirectConnectionState>.broadcast();
 
   /// Emits when a peer's connection state changes.
   Stream<ManagedPeer> get onPeerStateChanged => _peerStateCtrl.stream;
   
   /// Emits UIDs when connection fails (after retries exhausted).
   Stream<String> get onConnectionFailed => _connectionFailedCtrl.stream;
+
+  Stream<WifiDirectConnectionState> get onWifiStateChanged => _wifiStateCtrl.stream;
 
   ConnectionManager({
     required this.bleService,
@@ -194,21 +207,39 @@ class ConnectionManager extends ChangeNotifier {
     _log('Attempting Wi-Fi Direct connection to $uid (attempt ${retryCount + 1}/$kMaxRetries)');
 
     _setPeerState(uid, PeerConnectionState.connecting);
+    _setWifiState(WifiDirectConnectionState.discovering);
 
     try {
       // Start Wi-Fi Direct discovery
-      await wifiDirectService.startDiscovery();
-      _lastWifiConnectionAttempt = DateTime.now();
+      final discoveryOk = await wifiDirectService.startDiscovery();
+      if (!discoveryOk) {
+        _log('startDiscovery=false for $uid');
+        _setWifiState(WifiDirectConnectionState.failed);
+        _retryConnection(uid);
+        return;
+      }
+      // Try to actively connect to one available peer to avoid passive stalls.
+      final peers = await wifiDirectService.getPeers();
+      final available = peers.where((p) => p.address.isNotEmpty && p.status == 'available');
+      if (available.isNotEmpty) {
+        _setWifiState(WifiDirectConnectionState.connecting);
+        final ok = await wifiDirectService.connectToPeer(available.first.address);
+        if (!ok) {
+          _log('connectToPeer failed for ${available.first.address}');
+        }
+      }
 
       // Wait for discovery and connection events (with timeout)
       await Future.delayed(const Duration(seconds: 15));
 
       // If still connecting after timeout, try again
       if (_peers[uid]?.state == PeerConnectionState.connecting) {
+        _setWifiState(WifiDirectConnectionState.failed);
         _retryConnection(uid);
       }
     } catch (e) {
       _log('Wi-Fi Direct connection error for $uid: $e');
+      _setWifiState(WifiDirectConnectionState.failed);
       _retryConnection(uid);
     }
   }
@@ -258,6 +289,9 @@ class ConnectionManager extends ChangeNotifier {
   void _onWifiConnectionChanged(Map<String, dynamic> data) {
     final connected = data['connected'] == true;
     _log('Wi-Fi Direct connection changed: $connected');
+    _setWifiState(
+      connected ? WifiDirectConnectionState.connected : WifiDirectConnectionState.idle,
+    );
   }
 
   void _onPeerSocketConnected(Map<String, dynamic> data) {
@@ -324,7 +358,15 @@ class ConnectionManager extends ChangeNotifier {
     _retryTimers[uid]?.cancel();
     _retryTimers[uid] = null;
     _setPeerState(uid, PeerConnectionState.connected);
+    _setWifiState(WifiDirectConnectionState.connected);
     _log('Peer $uid marked connected via Wi-Fi Direct ($address)');
+  }
+
+  void _setWifiState(WifiDirectConnectionState state) {
+    if (_wifiState == state) return;
+    _wifiState = state;
+    _wifiStateCtrl.add(state);
+    notifyListeners();
   }
 
   /// Get the best transport for messaging a peer.
@@ -366,8 +408,12 @@ class ConnectionManager extends ChangeNotifier {
       return;
     }
     _log('Starting continuous discovery');
+    _setWifiState(WifiDirectConnectionState.discovering);
     await bleService.startContinuousScan(myUid: _myUid);
-    await wifiDirectService.startDiscovery();
+    final ok = await wifiDirectService.startDiscovery();
+    if (!ok) {
+      _setWifiState(WifiDirectConnectionState.failed);
+    }
   }
 
   /// Stop discovery.
@@ -375,9 +421,11 @@ class ConnectionManager extends ChangeNotifier {
     _log('Stopping discovery');
     await bleService.stopContinuousScan();
     await wifiDirectService.stopDiscovery();
+    _setWifiState(WifiDirectConnectionState.idle);
   }
 
   /// Cleanup and dispose.
+  @override
   void dispose() {
     _bleDiscoverySub?.cancel();
     _bleDiscoverySub = null;
@@ -393,6 +441,7 @@ class ConnectionManager extends ChangeNotifier {
 
     _peerStateCtrl.close();
     _connectionFailedCtrl.close();
+    _wifiStateCtrl.close();
 
     super.dispose();
   }

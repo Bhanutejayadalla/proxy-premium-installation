@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
+import '../services/connection_manager.dart';
 import '../services/mesh_db_service.dart';
 import '../services/mesh_service.dart';
 
@@ -144,8 +145,8 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
     final recipients = <String, _MeshRecipient>{};
 
     // ── Check ConnectionManager for always-on peer state ──────────────────────
-    if (state._connectionManagerInitialized && state._connectionManager != null) {
-      for (final cmPeer in state._connectionManager!.peers.values) {
+    if (state.isConnectionManagerReady) {
+      for (final cmPeer in state.managedPeers.values) {
         final stateLabel = cmPeer.state == PeerConnectionState.connected
             ? 'connected'
             : cmPeer.state == PeerConnectionState.connecting

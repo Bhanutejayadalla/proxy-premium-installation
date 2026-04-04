@@ -44,6 +44,12 @@ class AppState extends ChangeNotifier {
     return _connectionManager!;
   }
 
+  bool get isConnectionManagerReady =>
+      _connectionManagerInitialized && _connectionManager != null;
+
+  Map<String, ManagedPeer> get managedPeers =>
+      isConnectionManagerReady ? connectionManager.peers : const {};
+
   AppUser? currentUser;
   bool isFormal = true;
   bool isAuthLoading = true; // True until first auth check
@@ -226,6 +232,9 @@ class AppState extends ChangeNotifier {
       ble.initBlePayloadTransport().then((ok) {
         if (ok) {
           debugPrint('[BLE] Payload transport initialized for ${currentUser!.uid}');
+          // Always attach BLE payload listener so direct messages are accepted
+          // even when mesh relay toggle is OFF.
+          meshService.attachBleService(ble);
         } else {
           debugPrint('[BLE] Payload transport init failed');
         }

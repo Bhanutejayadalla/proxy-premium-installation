@@ -13,6 +13,7 @@ class BleDiscoveredUser {
   final String deviceId;    // Device identifier from scan response (may be empty)
   final int rssi;           // Signal strength
   final double distanceM;   // Estimated distance in meters
+  final DateTime lastSeen;  // Last seen timestamp
 
   BleDiscoveredUser({
     required this.uid,
@@ -20,7 +21,8 @@ class BleDiscoveredUser {
     this.deviceId = '',
     required this.rssi,
     required this.distanceM,
-  });
+    DateTime? lastSeen,
+  }) : lastSeen = lastSeen ?? DateTime.now();
 
   @override
   String toString() => 'BleDiscoveredUser(uid: ${uid.substring(0, min(8, uid.length))}…, '
@@ -51,6 +53,7 @@ class BleService {
 
   final Map<String, BleDiscoveredUser> _discovered = {};
   final Map<String, DateTime> _discoveredAt = {};
+  final Map<String, String> _deviceToUid = {};
   Timer? _scanRestartTimer;
   StreamSubscription<List<ScanResult>>? _continuousScanSub;
   bool _continuousRunning = false;
@@ -139,6 +142,7 @@ class BleService {
     _myUid = myUid;
     _discovered.clear();
     _discoveredAt.clear();
+    _deviceToUid.clear();
     _continuousRunning = true;
     _scanCycleInProgress = false;
     _log('Starting continuous scan (restart every 10s, minRssi: $minRssi)');
@@ -163,6 +167,7 @@ class BleService {
     await Future.delayed(const Duration(milliseconds: 100));
     _discovered.clear();
     _discoveredAt.clear();
+    _deviceToUid.clear();
     _log('Continuous scan stopped');
   }
 
@@ -186,8 +191,16 @@ class BleService {
         .toList();
     if (stale.isNotEmpty) {
       for (final uid in stale) {
+        final staleDeviceIds = _deviceToUid.entries
+            .where((e) => e.value == uid)
+            .map((e) => e.key)
+            .toList();
+        for (final did in staleDeviceIds) {
+          _deviceToUid.remove(did);
+        }
         _discovered.remove(uid);
         _discoveredAt.remove(uid);
+        _log('  → Device lost: $uid');
       }
       if (!_discoveryCtrl.isClosed) {
         _discoveryCtrl.add(Map.from(_discovered));
@@ -214,11 +227,19 @@ class BleService {
         if (parsed == null) continue;
         // Skip our own advertisement.
         if (_myUid != null && parsed.uid.startsWith(_myUid!.substring(0, min(12, _myUid!.length)))) continue;
+        final stableDeviceId = parsed.deviceId.isNotEmpty ? parsed.deviceId : parsed.uid;
+        final remappedUid = _deviceToUid[stableDeviceId];
+        if (remappedUid != null && remappedUid != parsed.uid) {
+          _discovered.remove(remappedUid);
+          _discoveredAt.remove(remappedUid);
+          changed = true;
+        }
         final existing = _discovered[parsed.uid];
         if (existing == null || r.rssi > existing.rssi ||
             (parsed.username.isNotEmpty && existing.username.isEmpty)) {
           _discovered[parsed.uid] = parsed;
           _discoveredAt[parsed.uid] = DateTime.now();
+          _deviceToUid[stableDeviceId] = parsed.uid;
           changed = true;
           _log('  → Discovered: ${parsed.uid.substring(0, min(8, parsed.uid.length))}… '
               'username="${parsed.username}" rssi=${parsed.rssi} dist=${parsed.distanceM.toStringAsFixed(1)}m');
@@ -320,6 +341,7 @@ class BleService {
       deviceId: deviceId,
       rssi: result.rssi,
       distanceM: dist,
+      lastSeen: DateTime.now(),
     );
   }
 
@@ -452,7 +474,7 @@ class BleService {
 
   /// Initialize BLE payload transport (GATT server) and listen for events.
   /// Call this once during app startup after normal BLE initialization.
-  Future<void> initBlePayloadTransport() async {
+  Future<bool> initBlePayloadTransport() async {
     try {
       // Start the native GATT server
       await _methodChannel.invokeMethod('startGattServer');
@@ -474,9 +496,10 @@ class BleService {
       }, onError: (e) => _log('Connection event error: $e'));
 
       _log('BLE Payload transport initialized and listening');
+      return true;
     } catch (e) {
       _log('ERROR initializing BLE Payload transport: $e');
-      rethrow;
+      return false;
     }
   }
 

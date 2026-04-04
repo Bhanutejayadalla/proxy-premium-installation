@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
@@ -10,6 +8,7 @@ import '../models.dart';
 import 'connection_manager.dart';
 import 'mesh_db_service.dart';
 import 'mesh_encryption_service.dart';
+import 'mesh_router.dart';
 import 'wifi_direct_service.dart';
 
 /// Maximum number of relay hops before a packet is discarded.
@@ -91,6 +90,7 @@ class MeshStatusInfo {
 class MeshService extends ChangeNotifier {
   final MeshDbService _db = MeshDbService();
   final MeshEncryptionService _crypto = MeshEncryptionService();
+  final MeshRouter _router = MeshRouter(maxHops: kMaxHops);
   final WifiDirectService _wifiDirect = WifiDirectService();
   final _uuid = const Uuid();
 
@@ -124,11 +124,7 @@ class MeshService extends ChangeNotifier {
   /// Socket-connected peer addresses
   final Set<String> _socketConnectedPeers = {};
 
-  /// Recently seen message IDs — prevents processing the same relayed message twice.
-  /// Uses a Queue for proper FIFO eviction when the limit is exceeded.
-  final Set<String> _seenMessageIds = {};
-  final Queue<String> _seenIdsQueue = Queue<String>();
-  static const int _maxSeenMessages = 500;
+  /// Recently seen message IDs are managed by MeshRouter.
 
   /// Wi-Fi Direct connection state
   bool _isWifiDirectConnected = false;
@@ -179,6 +175,12 @@ class MeshService extends ChangeNotifier {
 
   final _incomingCtrl = StreamController<MeshMessage>.broadcast();
   Stream<MeshMessage> get incomingMessages => _incomingCtrl.stream;
+
+  final Map<String, Completer<bool>> _ackWaiters = {};
+  final Map<String, List<MeshMessage>> _queuedByReceiver = {};
+
+  static const int _maxSendRetries = 3;
+  static const Duration _ackTimeout = Duration(milliseconds: 1200);
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Init & Permissions
@@ -268,7 +270,7 @@ class MeshService extends ChangeNotifier {
     // mesh will pick up peers from that stream. If no scan is active, the
     // _meshBleScanTimer below will kick off short scan bursts.
     if (bleService != null && _myUid != null) {
-      _bleService = bleService;
+      attachBleService(bleService);
       _bleScanSub?.cancel();
       _bleScanSub = bleService.discoveredUsersStream.listen((users) {
         for (final user in users.values) {
@@ -282,18 +284,7 @@ class MeshService extends ChangeNotifier {
       // for messages ≤180 chars when Wi-Fi Direct unavailable).
       try {
         await bleService.initBlePayloadTransport();
-        _blePayloadSub?.cancel();
-        _blePayloadSub = bleService.incomingBlePayloads.listen((payload) {
-          _log('Incoming BLE payload received: ${payload.length} bytes');
-          try {
-            final json = utf8.decode(payload);
-            final parsed = jsonDecode(json) as Map<String, dynamic>;
-            final packet = MeshWirePacket.fromJson(json);
-            _onPacketReceived(packet);
-          } catch (e) {
-            _log('BLE payload parse error: $e');
-          }
-        }, onError: (e) => _log('BLE payload stream error: $e'));
+        attachBleService(bleService);
         _log('BLE Payload transport (GATT) initialized');
       } catch (e) {
         _log('WARNING: BLE Payload transport failed to init: $e');
@@ -371,21 +362,15 @@ class MeshService extends ChangeNotifier {
     _blePayloadSub?.cancel();
     _blePayloadSub = null;
 
-    // Stop BLE GATT payload transport
-    if (_bleService != null) {
-      try {
-        await _bleService!.stopBlePayloadTransport();
-      } catch (e) {
-        _log('Error stopping BLE Payload transport: $e');
-      }
-    }
+    // Keep BLE GATT payload transport running to allow direct messaging while
+    // mesh relay is toggled OFF.
 
     await _wifiDirect.stopDiscovery();
     await _wifiDirect.disconnect();
 
     // Do NOT stop the BLE scan here — it belongs to NearbyScreen / AppState.
     // We only cancel our stream subscription above.
-    _bleService = null;
+    // Keep _bleService attached for direct fallback send path.
 
     _isRunning = false;
     _isWifiDirectConnected = false;
@@ -393,11 +378,10 @@ class MeshService extends ChangeNotifier {
     _groupOwnerAddress = '';
     _connectedPeers.clear();
     _bleDiscoveredPeers.clear();
-    _seenIdsQueue.clear();
     _addressToUid.clear();
     _pendingWifiConnections.clear();
     _socketConnectedPeers.clear();
-    _seenMessageIds.clear();
+    _router.clear();
     _setMeshState(MeshState.inactive);
     _log('Mesh stopped');
   }
@@ -407,6 +391,30 @@ class MeshService extends ChangeNotifier {
   void setConnectionManager(ConnectionManager manager) {
     _connectionManager = manager;
     _log('ConnectionManager reference set');
+  }
+
+  /// Attach BLE service for direct-message receive/send even when mesh relay is OFF.
+  /// Safe to call multiple times.
+  void attachBleService(BleService bleService) {
+    _bleService = bleService;
+    _blePayloadSub?.cancel();
+    _blePayloadSub = bleService.incomingBlePayloads.listen((payload) {
+      _log('Incoming BLE payload received: ${payload.length} bytes');
+      try {
+        final raw = utf8.decode(payload);
+        final parsed = jsonDecode(raw) as Map<String, dynamic>;
+        final type = parsed['type'] as String?;
+        if (type == 'ack') {
+          final mid = parsed['messageId'] as String?;
+          if (mid != null) _handleAck(mid);
+          return;
+        }
+        final packet = MeshWirePacket.fromJson(raw);
+        _onPacketReceived(packet);
+      } catch (e) {
+        _log('BLE payload parse error: $e');
+      }
+    }, onError: (e) => _log('BLE payload stream error: $e'));
   }
 
   void _setMeshState(MeshState state) {
@@ -619,6 +627,7 @@ class MeshService extends ChangeNotifier {
 
     // Deliver any pending messages for this peer
     _deliverPendingTo(uid, fromAddress);
+    _flushQueuedFor(uid, fromAddress);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -640,6 +649,14 @@ class MeshService extends ChangeNotifier {
         return;
       }
 
+      if (type == 'ack') {
+        final messageId = parsed['messageId'] as String?;
+        if (messageId != null) {
+          _handleAck(messageId);
+        }
+        return;
+      }
+
       // It's a mesh packet
       final packet = MeshWirePacket.fromJson(rawMessage);
       _log('Packet received from $fromAddress: ${packet.messageId}');
@@ -654,15 +671,9 @@ class MeshService extends ChangeNotifier {
     if (myUid == null) return;
 
     // Deduplicate
-    if (_seenMessageIds.contains(packet.messageId)) {
+    if (!_router.markSeen(packet.messageId)) {
       _log('Duplicate packet ${packet.messageId} — dropping');
       return;
-    }
-    _seenMessageIds.add(packet.messageId);
-    _seenIdsQueue.add(packet.messageId);
-    if (_seenMessageIds.length > _maxSeenMessages) {
-      final oldest = _seenIdsQueue.removeFirst();
-      _seenMessageIds.remove(oldest);
     }
 
     // Loop detection: if we're already in the path, drop
@@ -690,10 +701,11 @@ class MeshService extends ChangeNotifier {
         await _db.insertMessage(msg);
         _incomingCtrl.add(msg);
         _log('Message delivered: ${packet.messageId} from ${packet.senderId}');
+        await _sendAck(packet.messageId, packet.senderId, preferredTransport: packet.transport);
       } catch (e) {
         _log('Decrypt error for ${packet.messageId}: $e');
       }
-    } else if (packet.ttl > 0 && packet.hopCount < kMaxHops) {
+    } else if (_router.shouldForward(packet, myUid, relayEnabled: _isRunning)) {
       // Relay to all connected peers (with loop prevention)
       _log('Relaying ${packet.messageId} (hop ${packet.hopCount}, ttl ${packet.ttl})');
       _setMeshState(MeshState.relaying);
@@ -728,7 +740,7 @@ class MeshService extends ChangeNotifier {
       // Check if we have any BLE centrals connected (act as GATT server)
       final bleDevices = _bleService?.getConnectedBleDevices() ?? [];
       if (bleDevices.isNotEmpty) {
-        _log('Transport selector: BLE fallback for message ≤${kMaxBleMessageLength} chars');
+        _log('Transport selector: BLE fallback for message ≤$kMaxBleMessageLength chars');
         return MeshTransport.ble;
       }
     }
@@ -759,7 +771,12 @@ class MeshService extends ChangeNotifier {
       final transport = _selectTransport(msg, isDirectDelivery: true, receiverUid: receiverUid)
           ?? MeshTransport.wifiDirect; // Fall back to Wi-Fi if both available
       msg.transport = transport.name;
-      final ok = await _sendToAddress(peerAddress, msg, transport: transport);
+      final ok = await _sendWithAck(
+        peerAddress,
+        msg,
+        transport: transport,
+        targetUid: receiverUid,
+      );
       if (ok) {
         msg.deliveryStatus = MeshDeliveryStatus.delivered;
         await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
@@ -777,7 +794,12 @@ class MeshService extends ChangeNotifier {
         final wifiAddr = _connectionManager!.getWifiDirectAddress(receiverUid);
         if (wifiAddr != null) {
           msg.transport = MeshTransport.wifiDirect.name;
-          final ok = await _sendToAddress(wifiAddr, msg, transport: MeshTransport.wifiDirect);
+          final ok = await _sendWithAck(
+            wifiAddr,
+            msg,
+            transport: MeshTransport.wifiDirect,
+            targetUid: receiverUid,
+          );
           if (ok) {
             msg.deliveryStatus = MeshDeliveryStatus.delivered;
             await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
@@ -793,8 +815,9 @@ class MeshService extends ChangeNotifier {
         msg.transport = MeshTransport.ble.name;
         final bleOk = await _broadcastViaBlE(msg);
         if (bleOk) {
-          msg.deliveryStatus = MeshDeliveryStatus.delivered;
-          await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
+          // BLE broadcast fallback can still be asynchronous; mark as relayed.
+          msg.deliveryStatus = MeshDeliveryStatus.relayed;
+          await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
           _log('Message sent directly via BLE to $receiverUid (ConnectionManager)');
           notifyListeners();
           return msg;
@@ -802,7 +825,17 @@ class MeshService extends ChangeNotifier {
       }
     }
 
+    // Queue for later direct delivery when a transport becomes available.
+    _queueForReceiver(msg);
+    _log('Queued message ${msg.messageId} for $receiverUid (no direct transport available)');
+
     // ── Receiver not directly connected — try relay or BLE broadcast ───────
+    if (!_isRunning) {
+      _log('Mesh relay OFF; keeping message queued for direct delivery');
+      notifyListeners();
+      return msg;
+    }
+
     final transport = _selectTransport(msg, isDirectDelivery: false, receiverUid: receiverUid);
     if (transport == MeshTransport.ble) {
       msg.transport = MeshTransport.ble.name;
@@ -823,6 +856,101 @@ class MeshService extends ChangeNotifier {
     }
     notifyListeners();
     return msg;
+  }
+
+  Future<bool> _sendWithAck(
+    String address,
+    MeshMessage msg, {
+    required MeshTransport transport,
+    required String targetUid,
+  }) async {
+    for (var attempt = 1; attempt <= _maxSendRetries; attempt++) {
+      final completer = Completer<bool>();
+      _ackWaiters[msg.messageId] = completer;
+      final sent = await _sendToAddress(address, msg, transport: transport);
+      if (!sent) {
+        _ackWaiters.remove(msg.messageId);
+        continue;
+      }
+
+      try {
+        final acked = await completer.future.timeout(_ackTimeout);
+        if (acked) {
+          _ackWaiters.remove(msg.messageId);
+          return true;
+        }
+      } catch (_) {
+        _log('ACK timeout ${msg.messageId} attempt $attempt/$_maxSendRetries');
+      }
+      _ackWaiters.remove(msg.messageId);
+    }
+
+    _queueForReceiver(msg);
+    _log('Message ${msg.messageId} queued after ACK retries exhausted for $targetUid');
+    return false;
+  }
+
+  void _handleAck(String messageId) {
+    final waiter = _ackWaiters.remove(messageId);
+    if (waiter != null && !waiter.isCompleted) {
+      waiter.complete(true);
+      _log('ACK received for $messageId');
+    }
+  }
+
+  Future<void> _sendAck(
+    String messageId,
+    String senderUid, {
+    String? preferredTransport,
+  }) async {
+    final ack = jsonEncode({
+      'type': 'ack',
+      'messageId': messageId,
+      'from': _myUid,
+    });
+
+    final senderAddress = _connectedPeers[senderUid] ?? _connectionManager?.getWifiDirectAddress(senderUid);
+    if (senderAddress != null) {
+      await _wifiDirect.sendMessage(ack, targetAddress: senderAddress);
+      return;
+    }
+
+    if (preferredTransport == MeshTransport.ble.name && _bleService != null) {
+      await _bleService!.broadcastPayloadViaBLE(Uint8List.fromList(utf8.encode(ack)));
+    }
+  }
+
+  void _queueForReceiver(MeshMessage msg) {
+    final list = _queuedByReceiver.putIfAbsent(msg.receiverId, () => <MeshMessage>[]);
+    final exists = list.any((m) => m.messageId == msg.messageId);
+    if (!exists) {
+      list.add(msg);
+    }
+  }
+
+  Future<void> _flushQueuedFor(String uid, String address) async {
+    final queued = _queuedByReceiver[uid];
+    if (queued == null || queued.isEmpty) return;
+    final remaining = <MeshMessage>[];
+    for (final msg in queued) {
+      final ok = await _sendWithAck(
+        address,
+        msg,
+        transport: MeshTransport.wifiDirect,
+        targetUid: uid,
+      );
+      if (ok) {
+        msg.deliveryStatus = MeshDeliveryStatus.delivered;
+        await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
+      } else {
+        remaining.add(msg);
+      }
+    }
+    if (remaining.isEmpty) {
+      _queuedByReceiver.remove(uid);
+    } else {
+      _queuedByReceiver[uid] = remaining;
+    }
   }
 
   Future<bool> _sendToAddress(
@@ -911,8 +1039,8 @@ class MeshService extends ChangeNotifier {
     final myUid = _myUid;
     if (myUid == null) return;
 
-    // Use withRelay to add ourselves to the path and decrement TTL
-    final hopPacket = packet.withRelay(myUid);
+    // Use MeshRouter to add ourselves to the path and decrement TTL.
+    final hopPacket = _router.nextRelayPacket(packet, myUid);
     final json = hopPacket.toJson();
     bool relayed = false;
 
