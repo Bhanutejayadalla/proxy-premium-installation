@@ -235,7 +235,7 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 
   Future<void> _send() async {
     final text = _textCtrl.text.trim();
-    if (text.isEmpty || _isSending || !_meshActive || _activeRecipientUid == null) {
+    if (text.isEmpty || _isSending || _activeRecipientUid == null) {
       if (_activeRecipientUid == null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

@@ -6,12 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/auth_service.dart';
 import 'services/ble_advertiser_service.dart';
+import 'services/connection_manager.dart';
 import 'services/firebase_service.dart';
 import 'services/location_service.dart';
 import 'services/mesh_service.dart';
 import 'services/mesh_sync_service.dart';
 import 'services/notification_service.dart';
 import 'services/user_cache_service.dart';
+import 'services/wifi_direct_service.dart';
 import 'ble_service.dart';
 import 'models.dart';
 
@@ -24,10 +26,23 @@ class AppState extends ChangeNotifier {
   final BleAdvertiserService bleAdvertiser = BleAdvertiserService();
   final LocationService location = LocationService();
   final UserCacheService userCache = UserCacheService();
+  final WifiDirectService wifiDirect = WifiDirectService();
 
   /// Mesh networking — BLE-based offline chat.
   final MeshService meshService = MeshService();
   final MeshSyncService _meshSync = MeshSyncService();
+  
+  /// Connection manager — Handles peer discovery, connection attempts, transport selection.
+  /// Initialized at login, persists independent of mesh relay toggle.
+  ConnectionManager? _connectionManager;
+  bool _connectionManagerInitialized = false;
+
+  ConnectionManager get connectionManager {
+    if (_connectionManager == null) {
+      throw StateError('ConnectionManager not initialized');
+    }
+    return _connectionManager!;
+  }
 
   AppUser? currentUser;
   bool isFormal = true;
@@ -204,6 +219,33 @@ class AppState extends ChangeNotifier {
 
   void _startListeners() {
     _stopListeners();
+
+    // ── Always-on direct messaging infrastructure (independent of mesh relay) ──
+    if (currentUser != null) {
+      // Initialize BLE payload transport for direct peer-to-peer messaging
+      ble.initBlePayloadTransport().then((ok) {
+        if (ok) {
+          debugPrint('[BLE] Payload transport initialized for ${currentUser!.uid}');
+        } else {
+          debugPrint('[BLE] Payload transport init failed');
+        }
+      });
+
+      // Initialize ConnectionManager for peer discovery and Wi-Fi Direct fallback
+      _connectionManager = ConnectionManager(
+        bleService: ble,
+        wifiDirectService: wifiDirect,
+      );
+      _connectionManager!.initialize(currentUser!.uid).then((ok) {
+        if (ok) {
+          _connectionManagerInitialized = true;
+          _connectionManager!.startDiscovery();
+          debugPrint('[ConnectionManager] Initialized and discovery started for ${currentUser!.uid}');
+        } else {
+          debugPrint('[ConnectionManager] Initialization failed');
+        }
+      });
+    }
 
     // ── Mesh networking — init only (start/stop controlled by mesh chat UI) ──
     if (currentUser != null) {
@@ -382,6 +424,13 @@ class AppState extends ChangeNotifier {
     _receivedRequestsSub?.cancel();
     _profileSub?.cancel();
     _notifSub?.cancel();
+    // Stop connection manager (independent of mesh relay)
+    if (_connectionManagerInitialized && _connectionManager != null) {
+      _connectionManager!.stopDiscovery();
+      _connectionManager!.dispose();
+      _connectionManager = null;
+      _connectionManagerInitialized = false;
+    }
     // Stop mesh networking if running
     meshService.stop();
     _meshSync.stopWatching();
