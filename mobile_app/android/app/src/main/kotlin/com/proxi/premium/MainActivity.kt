@@ -78,6 +78,11 @@ class MainActivity : FlutterActivity() {
         wifiDirectPlugin = WifiDirectPlugin(this, wfdMethodChannel)
         wfdMethodChannel.setMethodCallHandler(wifiDirectPlugin)
         wfdEventChannel.setStreamHandler(wifiDirectPlugin)
+
+        // ── BLE Payload channel (GATT server for mesh dual-transport) ─────
+        val blePayloadChannel = BlePayloadChannel(this)
+        blePayloadChannel.setupChannels(flutterEngine)
+        Log.d(TAG, "BLE Payload channel initialized")
     }
 
     /** Returns true if this device supports BLE peripheral/advertising mode. */

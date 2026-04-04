@@ -658,6 +658,9 @@ class MeshMessage {
   /// Encrypted ciphertext (base64). Empty when not yet encrypted.
   String encryptedPayload;
 
+  /// Transport used for delivery: 'wifiDirect' or 'ble', null if unknown.
+  String? transport;
+
   MeshMessage({
     required this.messageId,
     required this.senderId,
@@ -667,6 +670,7 @@ class MeshMessage {
     this.deliveryStatus = MeshDeliveryStatus.pending,
     this.hopCount = 0,
     this.encryptedPayload = '',
+    this.transport,
   });
 
   // ── SQLite serialization ──
@@ -680,6 +684,7 @@ class MeshMessage {
         'delivery_status': deliveryStatus.name,
         'hop_count': hopCount,
         'encrypted_payload': encryptedPayload,
+        'transport': transport,
       };
 
   factory MeshMessage.fromMap(Map<String, dynamic> m) => MeshMessage(
@@ -695,6 +700,7 @@ class MeshMessage {
         ),
         hopCount: (m['hop_count'] as int?) ?? 0,
         encryptedPayload: (m['encrypted_payload'] as String?) ?? '',
+        transport: (m['transport'] as String?),
       );
 
   // ── Firebase serialization ──
@@ -709,6 +715,7 @@ class MeshMessage {
         'delivery_status': 'synced',
         'hop_count': hopCount,
         'source': 'mesh',
+        'transport': transport,
       };
 
   factory MeshMessage.fromFirestore(Map<String, dynamic> d) => MeshMessage(
@@ -721,6 +728,7 @@ class MeshMessage {
         deliveryStatus: MeshDeliveryStatus.synced,
         hopCount: (d['hop_count'] as int?) ?? 0,
         encryptedPayload: (d['encrypted_payload'] as String?) ?? '',
+        transport: (d['transport'] as String?),
       );
 }
 

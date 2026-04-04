@@ -30,7 +30,7 @@ class MeshDbService {
     final path = p.join(dbPath, 'mesh_messages.db');
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE mesh_messages (
@@ -41,7 +41,8 @@ class MeshDbService {
             timestamp        INTEGER NOT NULL,
             delivery_status  TEXT NOT NULL DEFAULT 'pending',
             hop_count        INTEGER DEFAULT 0,
-            encrypted_payload TEXT DEFAULT ''
+            encrypted_payload TEXT DEFAULT '',
+            transport        TEXT
           )
         ''');
         // Index for fast look-up by conversation pair
@@ -54,6 +55,22 @@ class MeshDbService {
           CREATE INDEX idx_status
           ON mesh_messages (delivery_status)
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          // Add transport column if upgrading from v1
+          final columns = await db.rawQuery(
+            "PRAGMA table_info(mesh_messages)",
+          );
+          final hasTransport = columns.any(
+            (col) => (col['name'] as String?) == 'transport',
+          );
+          if (!hasTransport) {
+            await db.execute(
+              'ALTER TABLE mesh_messages ADD COLUMN transport TEXT',
+            );
+          }
+        }
       },
     );
   }

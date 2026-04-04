@@ -89,6 +89,7 @@ class MeshWirePacket {
   final int hopCount;
   final int ttl;                 // time-to-live: decrements each relay
   final List<String> path;       // UIDs of relay nodes (loop prevention)
+  final String? transport;       // 'wifiDirect' or 'ble'
 
   MeshWirePacket({
     required this.messageId,
@@ -99,6 +100,7 @@ class MeshWirePacket {
     this.hopCount = 0,
     this.ttl = 5,
     this.path = const [],
+    this.transport,
   });
 
   /// Check if a UID is already in the relay path (loop detection).
@@ -114,6 +116,7 @@ class MeshWirePacket {
         'hop': hopCount,
         'ttl': ttl,
         'path': path,
+        'tr': transport,
       });
 
   factory MeshWirePacket.fromJson(String raw) {
@@ -127,6 +130,7 @@ class MeshWirePacket {
       hopCount: (m['hop'] as num?)?.toInt() ?? 0,
       ttl: (m['ttl'] as num?)?.toInt() ?? 5,
       path: (m['path'] as List?)?.cast<String>() ?? const [],
+      transport: m['tr'] as String?,
     );
   }
 
@@ -141,6 +145,7 @@ class MeshWirePacket {
         hopCount: hopCount + 1,
         ttl: ttl - 1,
         path: [...path, relayUid],
+        transport: transport,
       );
 
   /// Legacy helper — increments hop only (kept for compatibility).
@@ -153,5 +158,6 @@ class MeshWirePacket {
         hopCount: hopCount + 1,
         ttl: ttl - 1,
         path: path,
+        transport: transport,
       );
 }

@@ -31,7 +31,11 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   final _scrollCtrl = ScrollController();
   final _db = MeshDbService();
 
+  final Map<String, List<MeshMessage>> _conversationCache = {};
   List<MeshMessage> _messages = [];
+  String? _selectedRecipientUid;
+  String? _selectedRecipientName;
+  String? _selectedRecipientStatus;
   bool _meshActive = false;
   bool _isSending = false;
   bool _showDebugPanel = false;
@@ -41,6 +45,10 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   void initState() {
     super.initState();
     _meshActive = false;
+    if (widget.targetUid != 'broadcast') {
+      _selectedRecipientUid = widget.targetUid;
+      _selectedRecipientName = widget.targetName;
+    }
     _load();
   }
 
@@ -61,8 +69,24 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   Future<void> _load() async {
     final state = Provider.of<AppState>(context, listen: false);
     final myUid = state.currentUser?.uid ?? '';
-    final msgs = await _db.getConversation(myUid, widget.targetUid);
+    final recipientUid = _selectedRecipientUid;
+    if (recipientUid == null) {
+      if (!mounted) return;
+      setState(() => _messages = []);
+      return;
+    }
+
+    final cached = _conversationCache[recipientUid];
+    if (cached != null) {
+      if (!mounted) return;
+      setState(() => _messages = List<MeshMessage>.from(cached));
+      _scrollToBottom();
+      return;
+    }
+
+    final msgs = await _db.getConversation(myUid, recipientUid);
     if (!mounted) return;
+    _conversationCache[recipientUid] = List<MeshMessage>.from(msgs);
     setState(() => _messages = msgs);
     _scrollToBottom();
   }
@@ -70,11 +94,19 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   void _subscribeToIncoming() {
     _msgSub?.cancel();
     final state = Provider.of<AppState>(context, listen: false);
+    final recipientUid = _selectedRecipientUid;
+    if (recipientUid == null) {
+      _msgSub = null;
+      return;
+    }
     _msgSub = state.meshService.incomingMessages.listen((msg) {
-      // Only add messages from/to this conversation
-      if (msg.senderId == widget.targetUid || msg.receiverId == widget.targetUid) {
+      // Only add messages from/to the active conversation.
+      if (msg.senderId == recipientUid || msg.receiverId == recipientUid) {
         if (!mounted) return;
-        setState(() => _messages.add(msg));
+        setState(() {
+          _messages.add(msg);
+          _conversationCache[recipientUid] = List<MeshMessage>.from(_messages);
+        });
         _scrollToBottom();
       }
     });
@@ -84,6 +116,108 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
     _msgSub?.cancel();
     _msgSub = null;
   }
+
+  Future<void> _selectRecipient(_MeshRecipient peer) async {
+    final previousRecipient = _selectedRecipientUid;
+    if (previousRecipient == peer.uid && _selectedRecipientName == peer.name) {
+      return;
+    }
+
+    if (previousRecipient != null) {
+      _conversationCache[previousRecipient] = List<MeshMessage>.from(_messages);
+    }
+
+    setState(() {
+      _selectedRecipientUid = peer.uid;
+      _selectedRecipientName = peer.name;
+      _selectedRecipientStatus = peer.statusLabel;
+      _messages = _conversationCache[peer.uid] ?? <MeshMessage>[];
+    });
+
+    if (_meshActive) {
+      _subscribeToIncoming();
+    }
+    await _load();
+  }
+
+  List<_MeshRecipient> _buildRecipients(AppState state, String myUid) {
+    final recipients = <String, _MeshRecipient>{};
+
+    for (final entry in state.meshService.bleDiscoveredPeers.entries) {
+      final user = entry.value;
+      recipients[user.uid] = _MeshRecipient(
+        uid: user.uid,
+        name: user.username.isNotEmpty ? user.username : _shortName(user.uid),
+        statusLabel: state.meshService.connectedPeerEndpoints.containsKey(user.uid)
+            ? 'connected'
+            : (state.meshService.meshState == MeshState.connecting ||
+                    state.meshService.meshState == MeshState.discovered)
+                ? 'connecting'
+                : 'available',
+        rssi: user.rssi,
+        distanceM: user.distanceM,
+        sourceLabel: 'BLE',
+        isConnected: state.meshService.connectedPeerEndpoints.containsKey(user.uid),
+      );
+    }
+
+    for (final peer in state.meshService.peers) {
+      recipients.putIfAbsent(
+        peer.uid,
+        () => _MeshRecipient(
+          uid: peer.uid,
+          name: _shortName(peer.uid),
+          statusLabel: 'connected',
+          rssi: null,
+          distanceM: null,
+          sourceLabel: 'Wi-Fi Direct',
+          isConnected: true,
+        ),
+      );
+    }
+
+    if (_selectedRecipientUid != null &&
+        !recipients.containsKey(_selectedRecipientUid)) {
+      recipients[_selectedRecipientUid!] = _MeshRecipient(
+        uid: _selectedRecipientUid!,
+        name: _selectedRecipientName ?? _shortName(_selectedRecipientUid!),
+        statusLabel: _selectedRecipientStatus ?? 'available',
+        rssi: null,
+        distanceM: null,
+        sourceLabel: 'Conversation',
+        isConnected: false,
+      );
+    }
+
+    if (widget.targetUid == 'broadcast' && recipients.isEmpty) {
+      return const <_MeshRecipient>[];
+    }
+
+    final list = recipients.values.toList();
+    list.sort((a, b) {
+      if (a.isConnected != b.isConnected) {
+        return a.isConnected ? -1 : 1;
+      }
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return list;
+  }
+
+  String _shortName(String uid) {
+    if (uid.length <= 8) return uid;
+    return '${uid.substring(0, 8)}…';
+  }
+
+  Future<void> _selectFirstAvailableRecipient(AppState state) async {
+    final recipients = _buildRecipients(state, state.currentUser?.uid ?? '');
+    if (recipients.isNotEmpty && _selectedRecipientUid == null) {
+      await _selectRecipient(recipients.first);
+    }
+  }
+
+  String? get _activeRecipientUid => _selectedRecipientUid;
+
+  String get _recipientTitle => _selectedRecipientName ?? 'Select a device';
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -101,20 +235,33 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
 
   Future<void> _send() async {
     final text = _textCtrl.text.trim();
-    if (text.isEmpty || _isSending || !_meshActive) return;
+    if (text.isEmpty || _isSending || !_meshActive || _activeRecipientUid == null) {
+      if (_activeRecipientUid == null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a device to send message'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
 
     final state = Provider.of<AppState>(context, listen: false);
+    final recipientUid = _activeRecipientUid!;
 
     setState(() => _isSending = true);
     try {
       final msg = await state.meshService.sendMessage(
-        receiverUid: widget.targetUid,
+        receiverUid: recipientUid,
         text: text,
       );
       _textCtrl.clear();
       if (!mounted) return;
       setState(() {
         _messages.add(msg);
+        _conversationCache[recipientUid] = List<MeshMessage>.from(_messages);
         _isSending = false;
       });
       _scrollToBottom();
@@ -139,6 +286,9 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
     if (value) {
       // Start mesh
       await state.startMesh();
+      if (widget.targetUid == 'broadcast' && _selectedRecipientUid == null) {
+        await _selectFirstAvailableRecipient(state);
+      }
       _subscribeToIncoming();
       if (!mounted) return;
       setState(() => _meshActive = true);
@@ -157,14 +307,23 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
     final myUid = state.currentUser?.uid ?? '';
+    final recipients = _buildRecipients(state, myUid);
+    _MeshRecipient? activeRecipient;
+    for (final peer in recipients) {
+      if (peer.uid == _selectedRecipientUid) {
+        activeRecipient = peer;
+        break;
+      }
+    }
+    final canSend = _meshActive && _selectedRecipientUid != null;
+    final appBarTitle = _selectedRecipientName ?? widget.targetName;
 
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.targetName,
-                style: const TextStyle(fontSize: 16)),
+            Text(appBarTitle, style: const TextStyle(fontSize: 16)),
             Text(
               _meshActive ? 'Mesh Chat • Active' : 'Mesh Chat',
               style: TextStyle(
@@ -265,6 +424,27 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
               socketCount: state.meshService.socketConnectedCount,
             ),
 
+            _RecipientHeader(
+              selectedName: _selectedRecipientUid == null
+                  ? null
+                  : (activeRecipient?.name ?? _recipientTitle),
+              selectedStatus: _selectedRecipientUid == null
+                  ? null
+                  : (activeRecipient?.statusLabel ?? 'available'),
+              isMeshActive: _meshActive,
+            ),
+
+            _RecipientPanel(
+              recipients: recipients,
+              selectedUid: _selectedRecipientUid,
+              onSelect: _selectRecipient,
+            ),
+
+            if (_selectedRecipientUid == null)
+              const _SendWarningBanner(
+                text: 'Please select a device to send message',
+              ),
+
             // ── Debug panel ──────────────────────────────────────────────
             if (_showDebugPanel && _meshActive)
               _DebugPanel(meshService: state.meshService),
@@ -292,10 +472,321 @@ class _MeshChatScreenState extends State<MeshChatScreen> {
               controller: _textCtrl,
               isSending: _isSending,
               isMeshActive: _meshActive,
+              canSend: canSend,
+              warningText: _selectedRecipientUid == null
+                  ? 'Please select a device to send message'
+                  : null,
               onSend: _send,
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Recipient selector ───────────────────────────────────────────────────────
+
+class _MeshRecipient {
+  final String uid;
+  final String name;
+  final String statusLabel;
+  final int? rssi;
+  final double? distanceM;
+  final String sourceLabel;
+  final bool isConnected;
+
+  const _MeshRecipient({
+    required this.uid,
+    required this.name,
+    required this.statusLabel,
+    required this.rssi,
+    required this.distanceM,
+    required this.sourceLabel,
+    required this.isConnected,
+  });
+}
+
+class _RecipientHeader extends StatelessWidget {
+  final String? selectedName;
+  final String? selectedStatus;
+  final bool isMeshActive;
+
+  const _RecipientHeader({
+    required this.selectedName,
+    required this.selectedStatus,
+    required this.isMeshActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSelection = selectedName != null;
+    final status = selectedStatus ?? 'no device selected';
+    final color = hasSelection
+        ? (status == 'connected' ? Colors.greenAccent : Colors.amber)
+        : Colors.white54;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF15162A).withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: hasSelection ? color.withValues(alpha: 0.45) : Colors.white12,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              hasSelection ? Icons.mark_chat_unread : Icons.bluetooth_searching,
+              color: color,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasSelection ? 'Messaging: $selectedName' : 'Messaging: Select a device',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  hasSelection
+                      ? (status == 'connected'
+                          ? 'Connected and ready to send'
+                          : status == 'connecting'
+                              ? 'Connecting via Wi-Fi Direct...'
+                              : 'Available for messaging')
+                      : 'Please select a device to send message',
+                  style: TextStyle(
+                    color: isMeshActive ? Colors.white70 : Colors.white54,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasSelection)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  color: color,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecipientPanel extends StatelessWidget {
+  final List<_MeshRecipient> recipients;
+  final String? selectedUid;
+  final ValueChanged<_MeshRecipient> onSelect;
+
+  const _RecipientPanel({
+    required this.recipients,
+    required this.selectedUid,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF101326).withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.people_alt_outlined, size: 16, color: Colors.white70),
+              const SizedBox(width: 6),
+              const Text(
+                'Nearby devices',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                recipients.isEmpty ? 'No peers found' : '${recipients.length} available',
+                style: const TextStyle(color: Colors.white54, fontSize: 11),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (recipients.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text(
+                  'No nearby devices yet',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ),
+            )
+          else
+            SizedBox(
+              height: 176,
+              child: ListView.separated(
+                itemCount: recipients.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final peer = recipients[index];
+                  final isSelected = peer.uid == selectedUid;
+                  final statusColor = peer.isConnected
+                      ? Colors.greenAccent
+                      : peer.statusLabel == 'connecting'
+                          ? Colors.amber
+                          : Colors.white54;
+                  return InkWell(
+                    onTap: () => onSelect(peer),
+                    borderRadius: BorderRadius.circular(16),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.white.withValues(alpha: 0.025),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? Colors.cyanAccent : Colors.white12,
+                          width: isSelected ? 1.4 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor: statusColor.withValues(alpha: 0.15),
+                            child: Icon(
+                              peer.isConnected
+                                  ? Icons.wifi_tethering
+                                  : Icons.bluetooth,
+                              color: statusColor,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        peer.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    if (isSelected)
+                                      const Icon(Icons.check_circle, size: 18, color: Colors.cyanAccent),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${peer.sourceLabel} • ${peer.statusLabel}',
+                                  style: TextStyle(
+                                    color: statusColor,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                if (peer.rssi != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Signal: ${peer.rssi} dBm${peer.distanceM != null ? ' • ${peer.distanceM!.toStringAsFixed(1)} m' : ''}',
+                                    style: const TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SendWarningBanner extends StatelessWidget {
+  final String text;
+
+  const _SendWarningBanner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: Colors.orangeAccent, fontSize: 11),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -350,7 +841,7 @@ class _MeshStatusBanner extends StatelessWidget {
     switch (meshState) {
       case MeshState.connected:
       case MeshState.relaying:
-        statusText = '$peerCount peer${peerCount > 1 ? 's' : ''} connected via Wi-Fi Direct';
+        statusText = '$peerCount peer${peerCount > 1 ? 's' : ''} connected (Wi-Fi Direct primary • BLE fallback available)';
         statusIcon = Icons.check_circle;
         statusColor = Colors.greenAccent;
         break;
@@ -638,6 +1129,46 @@ class _MessageBubble extends StatelessWidget {
                           ],
                         ),
                       ),
+                      // Transport badge (BLE vs Wi-Fi Direct)
+                      if (message.transport != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: message.transport == 'ble'
+                                ? Colors.blueAccent.withValues(alpha: 0.18)
+                                : Colors.amberAccent.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                message.transport == 'ble'
+                                    ? Icons.signal_cellular_alt
+                                    : Icons.router,
+                                size: 9,
+                                color: message.transport == 'ble'
+                                    ? Colors.blueAccent
+                                    : Colors.amberAccent,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                message.transport == 'ble'
+                                    ? 'BLE'
+                                    : 'Wi-Fi',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: message.transport == 'ble'
+                                      ? Colors.blueAccent
+                                      : Colors.amberAccent,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -692,12 +1223,16 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final bool isSending;
   final bool isMeshActive;
+  final bool canSend;
+  final String? warningText;
   final VoidCallback onSend;
 
   const _InputBar({
     required this.controller,
     required this.isSending,
     required this.isMeshActive,
+    required this.canSend,
+    required this.warningText,
     required this.onSend,
   });
 
@@ -717,56 +1252,70 @@ class _InputBar extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                enabled: isMeshActive,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: isMeshActive
-                      ? 'Mesh message…'
-                      : 'Enable Mesh to type',
-                  hintStyle:
-                      const TextStyle(color: Colors.white38),
-                  filled: true,
-                  fillColor: const Color(0xFF2D2D44),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
+            if (warningText != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  warningText!,
+                  style: const TextStyle(color: Colors.orangeAccent, fontSize: 11),
                 ),
-                onSubmitted: (_) => onSend(),
-                maxLines: 4,
-                minLines: 1,
-                textInputAction: TextInputAction.send,
               ),
-            ),
-            const SizedBox(width: 8),
-            // Send button
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              decoration: BoxDecoration(
-                color: isMeshActive
-                    ? const Color(0xFF7C3AED)
-                    : Colors.grey.shade700,
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: isSending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white))
-                    : const Icon(Icons.send,
-                        color: Colors.white, size: 20),
-                onPressed: isMeshActive ? onSend : null,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    enabled: isMeshActive && canSend,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: isMeshActive
+                          ? (canSend ? 'Mesh message…' : 'Select a device to send')
+                          : 'Enable Mesh to type',
+                      hintStyle:
+                          const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: const Color(0xFF2D2D44),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                    ),
+                    onSubmitted: (_) => onSend(),
+                    maxLines: 4,
+                    minLines: 1,
+                    textInputAction: TextInputAction.send,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Send button
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  decoration: BoxDecoration(
+                    color: (isMeshActive && canSend)
+                        ? const Color(0xFF7C3AED)
+                        : Colors.grey.shade700,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: isSending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white))
+                        : const Icon(Icons.send,
+                            color: Colors.white, size: 20),
+                    onPressed: (isMeshActive && canSend) ? onSend : null,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

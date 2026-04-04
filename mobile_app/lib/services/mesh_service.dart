@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
@@ -12,6 +13,17 @@ import 'wifi_direct_service.dart';
 
 /// Maximum number of relay hops before a packet is discarded.
 const int kMaxHops = 5;
+
+/// Maximum plaintext message size for BLE fallback (pre-encryption).
+/// BLE payload characteristic has ~250 bytes capacity; AES-256 overhead ~32 bytes.
+/// 180 chars of text ≈ 180 bytes, leaves room for packet framing.
+const int kMaxBleMessageLength = 180;
+
+/// Transport mode for mesh messages — tracks which channel was used.
+enum MeshTransport {
+  wifiDirect, // Wi-Fi Direct TCP
+  ble,        // BLE GATT (fallback for small messages)
+}
 
 /// Mesh lifecycle states — exposed to the UI for status display.
 enum MeshState {
@@ -129,10 +141,19 @@ class MeshService extends ChangeNotifier {
 
   StreamSubscription? _wifiEventSub;
   StreamSubscription<Map<String, BleDiscoveredUser>>? _bleScanSub;
+  StreamSubscription<Uint8List>? _blePayloadSub;
 
   List<MeshPeer> get peers => _connectedPeers.entries
       .map((e) => MeshPeer(uid: e.key, endpointId: e.value))
       .toList();
+
+    /// BLE-discovered peers keyed by UID.
+    Map<String, BleDiscoveredUser> get bleDiscoveredPeers =>
+      Map.unmodifiable(_bleDiscoveredPeers);
+
+    /// Connected Wi-Fi Direct peers keyed by UID.
+    Map<String, String> get connectedPeerEndpoints =>
+      Map.unmodifiable(_connectedPeers);
 
   /// Number of BLE-discovered devices (even if not yet Wi-Fi connected)
   int get bleDiscoveredCount => _bleDiscoveredPeers.length;
@@ -251,6 +272,28 @@ class MeshService extends ChangeNotifier {
       });
       _log('BLE passive listening started for mesh peer discovery');
 
+      // ── BLE Payload Transport (GATT) ───────────────────────────────────
+      // Initialize GATT server for dual-transport mesh messaging (fallback
+      // for messages ≤180 chars when Wi-Fi Direct unavailable).
+      try {
+        await bleService.initBlePayloadTransport();
+        _blePayloadSub?.cancel();
+        _blePayloadSub = bleService.incomingBlePayloads.listen((payload) {
+          _log('Incoming BLE payload received: ${payload.length} bytes');
+          try {
+            final json = utf8.decode(payload);
+            final parsed = jsonDecode(json) as Map<String, dynamic>;
+            final packet = MeshWirePacket.fromJson(json);
+            _onPacketReceived(packet);
+          } catch (e) {
+            _log('BLE payload parse error: $e');
+          }
+        }, onError: (e) => _log('BLE payload stream error: $e'));
+        _log('BLE Payload transport (GATT) initialized');
+      } catch (e) {
+        _log('WARNING: BLE Payload transport failed to init: $e');
+      }
+
       // Start a lightweight periodic BLE scan for mesh-only mode.
       // Uses short 6-second bursts every 15 seconds. This runs even
       // when NearbyScreen is closed so mesh can discover new peers.
@@ -320,6 +363,17 @@ class MeshService extends ChangeNotifier {
     _wifiEventSub = null;
     _bleScanSub?.cancel();
     _bleScanSub = null;
+    _blePayloadSub?.cancel();
+    _blePayloadSub = null;
+
+    // Stop BLE GATT payload transport
+    if (_bleService != null) {
+      try {
+        await _bleService!.stopBlePayloadTransport();
+      } catch (e) {
+        _log('Error stopping BLE Payload transport: $e');
+      }
+    }
 
     await _wifiDirect.stopDiscovery();
     await _wifiDirect.disconnect();
@@ -389,9 +443,10 @@ class MeshService extends ChangeNotifier {
     if (!_isRunning) return;
 
     final existed = _bleDiscoveredPeers.containsKey(bleUser.uid);
+    final previous = _bleDiscoveredPeers[bleUser.uid];
     _bleDiscoveredPeers[bleUser.uid] = bleUser;
 
-    if (!existed) {
+    if (!existed || previous?.rssi != bleUser.rssi || previous?.username != bleUser.username) {
       _log('BLE discovered new peer: ${bleUser.uid} (${bleUser.username}) '
           'rssi=${bleUser.rssi} dist=${bleUser.distanceM.toStringAsFixed(1)}m');
       _updateMeshStateFromConnections();
@@ -618,6 +673,7 @@ class MeshService extends ChangeNotifier {
           deliveryStatus: MeshDeliveryStatus.delivered,
           hopCount: packet.hopCount,
           encryptedPayload: packet.encryptedPayload,
+          transport: packet.transport,
         );
         await _db.insertMessage(msg);
         _incomingCtrl.add(msg);
@@ -638,8 +694,36 @@ class MeshService extends ChangeNotifier {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Send / Relay Messages
+  //  Send / Relay Messages (Dual-Transport: Wi-Fi Direct Primary, BLE Fallback)
   // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Select transport for message delivery based on availability and message size.
+  /// Returns MeshTransport.wifiDirect if connected to receiver, else
+  /// MeshTransport.ble if message is small enough and receiver has BLE connected.
+  /// If no transport available, returns null (will use broadcast relay).
+  MeshTransport? _selectTransport(
+    MeshMessage msg, {
+    required bool isDirectDelivery,
+    required String receiverUid,
+  }) {
+    // Primary: Wi-Fi Direct direct delivery (always preferred if available)
+    if (isDirectDelivery && _connectedPeers.containsKey(receiverUid)) {
+      return MeshTransport.wifiDirect;
+    }
+
+    // Fallback: BLE for small plaintexts when Wi-Fi Direct unavailable
+    if (msg.messageText.length <= kMaxBleMessageLength) {
+      // Check if we have any BLE centrals connected (act as GATT server)
+      final bleDevices = _bleService?.getConnectedBleDevices() ?? [];
+      if (bleDevices.isNotEmpty) {
+        _log('Transport selector: BLE fallback for message ≤${kMaxBleMessageLength} chars');
+        return MeshTransport.ble;
+      }
+    }
+
+    // No suitable transport — will use broadcast relay
+    return null;
+  }
 
   Future<MeshMessage> sendMessage(
       {required String receiverUid, required String text}) async {
@@ -658,23 +742,46 @@ class MeshService extends ChangeNotifier {
 
     final peerAddress = _connectedPeers[receiverUid];
     if (peerAddress != null) {
-      // Direct delivery
-      final ok = await _sendToAddress(peerAddress, msg);
+      // Direct delivery — select optimal transport (Wi-Fi Direct preferred)
+      final transport = _selectTransport(msg, isDirectDelivery: true, receiverUid: receiverUid)
+          ?? MeshTransport.wifiDirect; // Fall back to Wi-Fi if both available
+      msg.transport = transport.name;
+      final ok = await _sendToAddress(peerAddress, msg, transport: transport);
       if (ok) {
         msg.deliveryStatus = MeshDeliveryStatus.delivered;
         await _db.updateStatus(msg.messageId, MeshDeliveryStatus.delivered);
-        _log('Message sent directly to $receiverUid');
+        _log('Message sent directly to $receiverUid (transport: ${transport.name})');
       }
     } else {
-      // Broadcast relay to all peers
-      _log('Receiver $receiverUid not directly connected — broadcasting relay');
-      await _broadcastRelay(msg);
+      // Receiver not directly connected — try BLE fallback first, else broadcast relay
+      final transport = _selectTransport(msg, isDirectDelivery: false, receiverUid: receiverUid);
+      if (transport == MeshTransport.ble) {
+        msg.transport = MeshTransport.ble.name;
+        // Try BLE broadcast to any connected BLE central (acts as relay)
+        final bleOk = await _broadcastViaBlE(msg);
+        if (bleOk) {
+          msg.deliveryStatus = MeshDeliveryStatus.relayed;
+          await _db.updateStatus(msg.messageId, MeshDeliveryStatus.relayed);
+          _log('Message sent via BLE relay (will be forwarded to $receiverUid)');
+        } else {
+          msg.transport = MeshTransport.wifiDirect.name;
+          await _broadcastRelay(msg);
+        }
+      } else {
+        msg.transport = MeshTransport.wifiDirect.name;
+        _log('Receiver $receiverUid not directly connected — broadcasting relay');
+        await _broadcastRelay(msg);
+      }
     }
     notifyListeners();
     return msg;
   }
 
-  Future<bool> _sendToAddress(String address, MeshMessage msg) async {
+  Future<bool> _sendToAddress(
+    String address,
+    MeshMessage msg, {
+    MeshTransport transport = MeshTransport.wifiDirect,
+  }) async {
     try {
       final packet = MeshWirePacket(
         messageId: msg.messageId,
@@ -685,15 +792,56 @@ class MeshService extends ChangeNotifier {
         hopCount: msg.hopCount,
         ttl: kMaxHops,
         path: [msg.senderId],
+        transport: transport.name,
       );
-      final ok = await _wifiDirect.sendMessage(
-        packet.toJson(),
-        targetAddress: address,
-      );
-      _log('Send to $address: ${ok ? "OK" : "FAILED"}');
-      return ok;
+
+      if (transport == MeshTransport.ble) {
+        // Send via BLE GATT
+        final ok = await _bleService?.sendPayloadViaBLE(
+              address,
+              Uint8List.fromList(utf8.encode(packet.toJson())),
+            ) ??
+            false;
+        _log('Send via BLE to $address: ${ok ? "OK" : "FAILED"}');
+        return ok;
+      } else {
+        // Send via Wi-Fi Direct TCP (default)
+        final ok = await _wifiDirect.sendMessage(
+          packet.toJson(),
+          targetAddress: address,
+        );
+        _log('Send via Wi-Fi Direct to $address: ${ok ? "OK" : "FAILED"}');
+        return ok;
+      }
     } catch (e) {
       _log('Send error to $address: $e');
+      return false;
+    }
+  }
+
+  /// Broadcast mesh message via BLE to all connected centrals (experimental dual-transport).
+  /// Used when receiver is not directly connected but BLE fallback is available.
+  Future<bool> _broadcastViaBlE(MeshMessage msg) async {
+    try {
+      final packet = MeshWirePacket(
+        messageId: msg.messageId,
+        senderId: msg.senderId,
+        receiverId: msg.receiverId,
+        encryptedPayload: msg.encryptedPayload,
+        timestamp: msg.timestamp.millisecondsSinceEpoch,
+        hopCount: msg.hopCount,
+        ttl: kMaxHops,
+        path: [msg.senderId],
+        transport: MeshTransport.ble.name,
+      );
+      final count = await _bleService?.broadcastPayloadViaBLE(
+            Uint8List.fromList(utf8.encode(packet.toJson())),
+          ) ??
+          0;
+      _log('Broadcast via BLE to $count device(s)');
+      return count > 0;
+    } catch (e) {
+      _log('BLE broadcast error: $e');
       return false;
     }
   }
@@ -749,6 +897,7 @@ class MeshService extends ChangeNotifier {
         deliveryStatus: MeshDeliveryStatus.relayed,
         hopCount: hopPacket.hopCount,
         encryptedPayload: packet.encryptedPayload,
+        transport: packet.transport,
       ));
     }
   }

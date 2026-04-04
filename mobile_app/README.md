@@ -33,6 +33,27 @@ The app uses **Bluetooth Low Energy (BLE)** and **GPS** for proximity-based user
 - **Connection Status Awareness** — Nearby users and profile pages display live connection state so you never send duplicate requests
 - **Onboarding** — 4-page walkthrough introducing app features
 
+## 🕸️ Dual Transport Mesh Policy
+
+The offline mesh chat now uses a **dual-transport strategy**:
+
+- **Primary transport: Wi-Fi Direct** for normal chat delivery and high-throughput relays
+- **Fallback transport: BLE GATT** for short text packets when Wi-Fi Direct path is unavailable
+- **BLE message limit:** plaintext messages up to **180 characters** (before encryption)
+- **Relay safety controls:** TTL + hop count + visited path checks to reduce loop risk
+
+### Routing Rules
+
+1. If receiver has an active Wi-Fi Direct route, send over Wi-Fi Direct.
+2. If no Wi-Fi Direct route and message is ≤180 chars, attempt BLE fallback.
+3. If direct delivery is unavailable, use mesh relay (respecting max hops/TTL).
+
+### UI Indicators
+
+- Mesh badge shows hop count when relayed.
+- Transport badge shows **Wi-Fi** or **BLE** per message.
+- Status banner indicates that Wi-Fi Direct is primary and BLE fallback is available.
+
 ---
 
 ## 🏗️ Tech Stack

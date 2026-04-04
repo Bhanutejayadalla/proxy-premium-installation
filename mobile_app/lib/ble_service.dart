@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -413,5 +414,119 @@ class BleService {
     return FlutterBluePlus.scanResults.map((results) =>
       results.where((r) => r.rssi >= minRssi).toList()
     );
+  }
+
+  // ── BLE Payload (GATT) Support ───────────────────────────────────────────
+  // Dual-transport mesh messaging: send/receive encrypted payloads over BLE GATT
+
+  static const String _payloadMethodChannel = 'com.proxi.ble_payload';
+  static const String _payloadEventChannel = 'com.proxi.ble_payload_stream';
+
+  final MethodChannel _methodChannel = const MethodChannel(_payloadMethodChannel);
+  late final EventChannel _eventChannel = const EventChannel(_payloadEventChannel);
+
+  // Incoming BLE payload stream
+  late final Stream<Map<String, dynamic>> _payloadStream = _eventChannel
+      .receiveBroadcastStream()
+      .map((event) => Map<String, dynamic>.from(event))
+      .handleError((e) => _log('Payload stream error: $e'));
+
+  /// Stream of incoming BLE mesh payloads.
+  /// Emits: {type: 'payload', payload: Uint8List}
+  Stream<Uint8List> get incomingBlePayloads =>
+      _payloadStream
+          .where((e) => e['type'] == 'payload')
+          .map((e) => Uint8List.fromList(List<int>.from(e['payload'] ?? [])));
+
+  /// Stream of BLE connection events (connected/disconnected).
+  /// Emits: {type: 'connected'|'disconnected', deviceId: String}
+  Stream<Map<String, dynamic>> get bleConnectionEvents =>
+      _payloadStream
+          .where((e) => (e['type'] == 'connected' || e['type'] == 'disconnected'));
+
+  /// Cached list of connected BLE devices (remote address strings).
+  final List<String> _connectedBleDevices = [];
+
+  /// Get current list of connected BLE central devices.
+  List<String> getConnectedBleDevices() => List.from(_connectedBleDevices);
+
+  /// Initialize BLE payload transport (GATT server) and listen for events.
+  /// Call this once during app startup after normal BLE initialization.
+  Future<void> initBlePayloadTransport() async {
+    try {
+      // Start the native GATT server
+      await _methodChannel.invokeMethod('startGattServer');
+      _log('BLE Payload transport (GATT server) started');
+
+      // Listen to connection/disconnection events
+      bleConnectionEvents.listen((event) {
+        final deviceId = event['deviceId'] as String? ?? 'unknown';
+        final isConnected = event['type'] == 'connected';
+        if (isConnected) {
+          if (!_connectedBleDevices.contains(deviceId)) {
+            _connectedBleDevices.add(deviceId);
+            _log('BLE Central connected: $deviceId (total: ${_connectedBleDevices.length})');
+          }
+        } else {
+          _connectedBleDevices.remove(deviceId);
+          _log('BLE Central disconnected: $deviceId (total: ${_connectedBleDevices.length})');
+        }
+      }, onError: (e) => _log('Connection event error: $e'));
+
+      _log('BLE Payload transport initialized and listening');
+    } catch (e) {
+      _log('ERROR initializing BLE Payload transport: $e');
+      rethrow;
+    }
+  }
+
+  /// Send encrypted mesh payload to a specific BLE central device.
+  /// [deviceId] — Bluetooth MAC address or device identifier
+  /// [payload] — Encrypted mesh packet bytes
+  /// Returns true if send was initiated; false if device not connected.
+  Future<bool> sendPayloadViaBLE(String deviceId, Uint8List payload) async {
+    try {
+      if (!_connectedBleDevices.contains(deviceId)) {
+        _log('Cannot send payload: device $deviceId not connected (available: $_connectedBleDevices)');
+        return false;
+      }
+      await _methodChannel.invokeMethod('sendPayloadToClient', {
+        'deviceId': deviceId,
+        'payload': payload,
+      });
+      _log('BLE payload sent to $deviceId: ${payload.length} bytes');
+      return true;
+    } catch (e) {
+      _log('ERROR sending payload via BLE: $e');
+      return false;
+    }
+  }
+
+  /// Broadcast encrypted mesh payload to all connected BLE central devices.
+  /// [payload] — Encrypted mesh packet bytes
+  /// Returns number of devices the payload was sent to.
+  Future<int> broadcastPayloadViaBLE(Uint8List payload) async {
+    try {
+      await _methodChannel.invokeMethod('broadcastPayload', {
+        'payload': payload,
+      });
+      final count = _connectedBleDevices.length;
+      _log('BLE payload broadcast to $count device(s): ${payload.length} bytes');
+      return count;
+    } catch (e) {
+      _log('ERROR broadcasting payload via BLE: $e');
+      return 0;
+    }
+  }
+
+  /// Stop BLE payload transport (GATT server).
+  Future<void> stopBlePayloadTransport() async {
+    try {
+      await _methodChannel.invokeMethod('stopGattServer');
+      _connectedBleDevices.clear();
+      _log('BLE Payload transport stopped');
+    } catch (e) {
+      _log('ERROR stopping BLE Payload transport: $e');
+    }
   }
 }
